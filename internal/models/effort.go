@@ -85,7 +85,15 @@ func ResolveEffort(kiroModel, requested string) string {
 	}
 	capability, ok := effortCapabilities[kiroModel]
 	if !ok {
-		return ""
+		// Fall back to the discovered catalog so a model launched after this
+		// build still gets its effort forwarded instead of silently dropped.
+		// Discovery only records the Claude-style output_config schema, so a
+		// derived capability is never a reasoning model.
+		enum, found := catalogEffortEnum(kiroModel)
+		if !found || len(enum) == 0 {
+			return ""
+		}
+		capability = effortCapability{levels: enum}
 	}
 	// Enum membership wins: accepts model-specific values like "none" that
 	// are not rankable levels.
