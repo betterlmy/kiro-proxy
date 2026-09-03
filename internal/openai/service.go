@@ -134,7 +134,12 @@ func (s *Service) execute(w http.ResponseWriter, r *http.Request, input Request,
 	if api == surfaceChat {
 		writeJSON(w, chatResponse(responseID, responseModel, response))
 	} else {
-		writeJSON(w, responsesResponse(responseID, responseModel, response, input.PreviousResponseID))
+		body, err := responsesResponse(responseID, responseModel, response, input.PreviousResponseID, input.ResponseToolKinds)
+		if err != nil {
+			writeError(w, http.StatusBadGateway, "server_error", err.Error())
+			return
+		}
+		writeJSON(w, body)
 	}
 }
 
@@ -143,7 +148,7 @@ func (s *Service) stream(w http.ResponseWriter, ctx context.Context, body io.Rea
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	flusher, _ := w.(http.Flusher)
-	writer := newStreamWriter(w, flusher, api, responseID, model, input.PreviousResponseID)
+	writer := newStreamWriter(w, flusher, api, responseID, model, input.PreviousResponseID, input.ResponseToolKinds)
 	writer.start()
 	err := consume(ctx, body, acc, func(delta respconv.EventDelta) {
 		writer.delta(delta)

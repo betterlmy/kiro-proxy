@@ -72,7 +72,15 @@ type ResponseTool struct {
 	Name        string         `json:"name,omitempty"`
 	Description string         `json:"description,omitempty"`
 	Parameters  map[string]any `json:"parameters,omitempty"`
+	Tools       []ResponseTool `json:"tools,omitempty"`
 }
+
+type responseToolKind string
+
+const (
+	responseToolKindFunction responseToolKind = "function"
+	responseToolKindCustom   responseToolKind = "custom"
+)
 
 // Request is the normalized input shared by both OpenAI API surfaces.
 type Request struct {
@@ -86,6 +94,7 @@ type Request struct {
 	ReasoningEffort    string
 	PreviousResponseID string
 	IncludeUsage       bool
+	ResponseToolKinds  map[string]responseToolKind
 }
 
 func (r ChatRequest) Normalize() (Request, error) {
@@ -180,6 +189,6 @@ func (r ResponsesRequest) Normalize() (Request, error) {
 	if len(result.Messages) == 0 {
 		return Request{}, fmt.Errorf("input must not be empty")
 	}
-	result.Tools, err = normalizeResponseTools(r.Tools)
+	result.Tools, result.ResponseToolKinds, err = normalizeResponseTools(r.Tools)
 	return result, err
 }

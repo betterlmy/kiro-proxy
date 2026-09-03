@@ -72,3 +72,65 @@ func TestOpenAIResponses_StreamAndContinuation(t *testing.T) {
 		t.Fatal("previous_response_id did not preserve Kiro conversation")
 	}
 }
+
+func TestOpenAIResponses_CodexCustomAndNamespaceTools(t *testing.T) {
+	toolEvent := mustJSON(map[string]any{
+		"name": "apply_patch", "toolUseId": "call_patch", "input": map[string]any{
+			"input": "*** Begin Patch\n*** Update File: main.go",
+		}, "stop": true,
+	})
+	client := &multiResponseClient{responses: [][]any{
+		{"toolUseEvent", toolEvent},
+		textEvents("patch applied"),
+	}}
+	ts := newE2EServerWithClient(t, client)
+	defer ts.Close()
+
+	first := postOpenAI(t, ts.URL, "/v1/responses", `{
+		"model":"claude-sonnet-4-6",
+		"input":"update the file",
+		"tools":[
+			{"type":"function","name":"read_file","parameters":{"type":"object"}},
+			{"type":"custom","name":"apply_patch","description":"Apply a patch","format":{"type":"text"}},
+			{"type":"namespace","name":"mcp__pencil","tools":[{"type":"function","name":"execute","parameters":{"type":"object"}}]},
+			{"type":"web_search"}
+		]
+	}`)
+	requireStatus(t, first, http.StatusOK)
+	firstBody := decodeResponse(t, first)
+	_ = first.Body.Close()
+
+	output := firstBody["output"].([]any)
+	if len(output) != 1 {
+		t.Fatalf("output count = %d, want 1", len(output))
+	}
+	call := output[0].(map[string]any)
+	if call["type"] != "custom_tool_call" || call["name"] != "apply_patch" || call["input"] != "*** Begin Patch\n*** Update File: main.go" {
+		t.Fatalf("custom tool call = %#v", call)
+	}
+	if len(client.payloads) != 1 {
+		t.Fatalf("upstream calls = %d, want 1", len(client.payloads))
+	}
+	tools := client.payloads[0].ConversationState.CurrentMessage.UserInputMessage.UserInputMessageContext.Tools
+	if len(tools) != 3 {
+		t.Fatalf("Kiro tool count = %d, want 3", len(tools))
+	}
+	if tools[1].ToolSpecification.Name != "apply_patch" || tools[2].ToolSpecification.Name != "mcp__pencil__execute" {
+		t.Fatalf("Kiro tool names = %q, %q, %q", tools[0].ToolSpecification.Name, tools[1].ToolSpecification.Name, tools[2].ToolSpecification.Name)
+	}
+
+	second := postOpenAI(t, ts.URL, "/v1/responses", `{
+		"model":"claude-sonnet-4-6",
+		"previous_response_id":"`+firstBody["id"].(string)+`",
+		"input":[{"type":"custom_tool_call_output","call_id":"call_patch","output":"Done"}]
+	}`)
+	requireStatus(t, second, http.StatusOK)
+	_ = decodeResponse(t, second)
+	_ = second.Body.Close()
+	if len(client.payloads) != 2 {
+		t.Fatalf("upstream calls = %d, want 2", len(client.payloads))
+	}
+	if !strings.Contains(historyText(client.payloads[1]), "Done") {
+		t.Fatalf("custom tool output missing from Kiro request: %s", historyText(client.payloads[1]))
+	}
+}

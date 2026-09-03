@@ -22,18 +22,85 @@ func normalizeChatTools(tools []ChatTool) ([]anthropic.Tool, error) {
 	return result, nil
 }
 
-func normalizeResponseTools(tools []ResponseTool) ([]anthropic.Tool, error) {
+func normalizeResponseTools(tools []ResponseTool) ([]anthropic.Tool, map[string]responseToolKind, error) {
 	result := make([]anthropic.Tool, 0, len(tools))
-	for _, tool := range tools {
-		if tool.Type != "function" {
-			return nil, fmt.Errorf("unsupported tool type %q; only function is supported", tool.Type)
-		}
-		if tool.Name == "" {
-			return nil, fmt.Errorf("function tool name is required")
-		}
-		result = append(result, anthropic.Tool{Name: tool.Name, Description: tool.Description, InputSchema: tool.Parameters})
+	kinds := make(map[string]responseToolKind)
+	if err := appendResponseTools(&result, kinds, tools, ""); err != nil {
+		return nil, nil, err
 	}
-	return result, nil
+	return result, kinds, nil
+}
+
+func appendResponseTools(result *[]anthropic.Tool, kinds map[string]responseToolKind, tools []ResponseTool, namespace string) error {
+	for _, tool := range tools {
+		switch tool.Type {
+		case "function":
+			name, err := responseToolName(namespace, tool.Name, "function")
+			if err != nil {
+				return err
+			}
+			if _, exists := kinds[name]; exists {
+				return fmt.Errorf("duplicate response tool name %q", name)
+			}
+			*result = append(*result, anthropic.Tool{Name: name, Description: tool.Description, InputSchema: tool.Parameters})
+			kinds[name] = responseToolKindFunction
+		case "custom":
+			name, err := responseToolName(namespace, tool.Name, "custom")
+			if err != nil {
+				return err
+			}
+			if _, exists := kinds[name]; exists {
+				return fmt.Errorf("duplicate response tool name %q", name)
+			}
+			description := tool.Description
+			if description != "" {
+				description += "\n\n"
+			}
+			description += "请将完整的原始工具输入放入 input 字符串中。"
+			*result = append(*result, anthropic.Tool{Name: name, Description: description, InputSchema: customToolInputSchema()})
+			kinds[name] = responseToolKindCustom
+		case "namespace":
+			name, err := responseToolName(namespace, tool.Name, "namespace")
+			if err != nil {
+				return err
+			}
+			if len(tool.Tools) == 0 {
+				return fmt.Errorf("namespace tool %q must contain tools", name)
+			}
+			if err := appendResponseTools(result, kinds, tool.Tools, name); err != nil {
+				return err
+			}
+		case "web_search":
+			// Kiro 没有兼容的托管网页搜索实现，省略该工具以避免模型选择无法执行的能力。
+		default:
+			return fmt.Errorf("unsupported tool type %q", tool.Type)
+		}
+	}
+	return nil
+}
+
+func responseToolName(namespace, name, toolType string) (string, error) {
+	if name == "" {
+		return "", fmt.Errorf("%s tool name is required", toolType)
+	}
+	if namespace == "" {
+		return name, nil
+	}
+	return namespace + "__" + name, nil
+}
+
+func customToolInputSchema() map[string]any {
+	return map[string]any{
+		"type":                 "object",
+		"additionalProperties": false,
+		"required":             []any{"input"},
+		"properties": map[string]any{
+			"input": map[string]any{
+				"type":        "string",
+				"description": "custom 工具的完整原始输入。",
+			},
+		},
+	}
 }
 
 func responseInputMessages(input any) ([]anthropic.Message, error) {
@@ -70,10 +137,10 @@ func responseInputMessages(input any) ([]anthropic.Message, error) {
 			default:
 				return nil, fmt.Errorf("unsupported input message role %q", role)
 			}
-		case "function_call_output":
+		case "function_call_output", "custom_tool_call_output":
 			callID, _ := item["call_id"].(string)
 			if callID == "" {
-				return nil, fmt.Errorf("function_call_output requires call_id")
+				return nil, fmt.Errorf("%s requires call_id", typ)
 			}
 			content, err := contentText(item["output"])
 			if err != nil {
@@ -89,6 +156,14 @@ func responseInputMessages(input any) ([]anthropic.Message, error) {
 				return nil, fmt.Errorf("invalid function_call arguments: %w", err)
 			}
 			result = append(result, anthropic.Message{Role: "assistant", Content: anthropic.MessageContent{Blocks: []anthropic.ContentBlock{{Type: anthropic.BlockTypeToolUse, ID: callID, Name: name, Input: input}}}})
+		case "custom_tool_call":
+			callID, _ := item["call_id"].(string)
+			name, _ := item["name"].(string)
+			input, _ := item["input"].(string)
+			if callID == "" || name == "" {
+				return nil, fmt.Errorf("custom_tool_call requires call_id and name")
+			}
+			result = append(result, anthropic.Message{Role: "assistant", Content: anthropic.MessageContent{Blocks: []anthropic.ContentBlock{{Type: anthropic.BlockTypeToolUse, ID: callID, Name: name, Input: map[string]any{"input": input}}}}})
 		default:
 			return nil, fmt.Errorf("unsupported input item type %q", typ)
 		}
