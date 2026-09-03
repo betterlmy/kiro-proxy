@@ -13,6 +13,7 @@ import (
 	"github.com/betterlmy/kiro-proxy/internal/models"
 	"github.com/betterlmy/kiro-proxy/internal/reqconv"
 	"github.com/betterlmy/kiro-proxy/internal/toolsearch"
+	"github.com/google/uuid"
 )
 
 const headerCCSessionID = "X-Claude-Code-Session-Id"
@@ -30,8 +31,8 @@ func (s *Service) HandleMessages(w http.ResponseWriter, r *http.Request) {
 
 	ccSessionID := r.Header.Get(headerCCSessionID)
 	if ccSessionID == "" {
-		httpx.WriteError(w, http.StatusBadRequest, errTypeInvalidRequest, "missing "+headerCCSessionID+" header")
-		return
+		ccSessionID = "auto-" + uuid.NewString()
+		slog.DebugContext(ctx, "generated session ID for Anthropic request", "trace_id", short)
 	}
 	ctx = logging.WithSessionID(ctx, ccSessionID)
 	r = r.WithContext(ctx)

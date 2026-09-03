@@ -264,6 +264,39 @@ func TestAPIKeyAuth_Valid(t *testing.T) {
 	}
 }
 
+func TestAPIKeyAuth_LegacyXAPIKey(t *testing.T) {
+	srv := newTestServer(t, "secret", nil)
+	defer srv.Close()
+
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/v1/models", nil)
+	req.Header.Set("X-Api-Key", "secret")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusOK {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusOK)
+	}
+}
+
+func TestAPIKeyAuth_BearerTakesPrecedence(t *testing.T) {
+	srv := newTestServer(t, "secret", nil)
+	defer srv.Close()
+
+	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/v1/models", nil)
+	req.Header.Set("Authorization", "Bearer wrong")
+	req.Header.Set("X-Api-Key", "secret")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	if resp.StatusCode != http.StatusUnauthorized {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusUnauthorized)
+	}
+}
+
 func TestAPIKeyAuth_Invalid(t *testing.T) {
 	srv := newTestServer(t, "secret", nil)
 	defer srv.Close()
@@ -308,6 +341,9 @@ func TestCORSHeaders(t *testing.T) {
 	if got := resp.Header.Get("Access-Control-Allow-Origin"); got != "http://localhost:3000" {
 		t.Fatalf("Access-Control-Allow-Origin = %q, want %q", got, "http://localhost:3000")
 	}
+	if got := resp.Header.Get("Access-Control-Allow-Headers"); !strings.Contains(got, "X-Api-Key") {
+		t.Fatalf("Access-Control-Allow-Headers = %q, want X-Api-Key", got)
+	}
 }
 
 func TestPostMessages_InvalidJSON(t *testing.T) {
@@ -321,6 +357,23 @@ func TestPostMessages_InvalidJSON(t *testing.T) {
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode != 400 {
 		t.Fatalf("status = %d, want 400", resp.StatusCode)
+	}
+}
+
+func TestPostMessages_GeneratesSessionIDWhenHeaderMissing(t *testing.T) {
+	client := &capturingClient{events: textEvents("ok")}
+	srv := newE2EServer(t, client)
+	defer srv.Close()
+
+	resp, err := http.Post(srv.URL+"/v1/messages", "application/json", strings.NewReader(`{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"hello"}]}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	requireStatus(t, resp, http.StatusOK)
+	requireCaptured(t, client)
+	if got := client.captured.ConversationState.ConversationID; !strings.HasPrefix(got, "auto-") {
+		t.Fatalf("ConversationID = %q, want generated auto- ID", got)
 	}
 }
 

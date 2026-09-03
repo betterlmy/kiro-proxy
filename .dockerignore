@@ -1,0 +1,10 @@
+.git/
+.codegraph/
+.env
+_docs/
+_tmp/
+dist/
+coverage.*
+debug.log
+*.test
+*.out

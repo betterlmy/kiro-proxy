@@ -33,14 +33,26 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		authHeader := r.Header.Get("Authorization")
-		token, ok := strings.CutPrefix(authHeader, "Bearer ")
+		token, ok := requestAPIKey(r)
 		if !ok || subtle.ConstantTimeCompare([]byte(token), []byte(s.apiKey)) != 1 {
 			httpx.WriteError(w, http.StatusUnauthorized, httpx.ErrTypeAuthentication, "invalid API key")
 			return
 		}
 		next.ServeHTTP(w, r)
 	})
+}
+
+// requestAPIKey accepts OpenAI's standard Bearer header and the legacy
+// x-api-key header used by Anthropic-compatible clients. Bearer takes
+// precedence when both are supplied.
+func requestAPIKey(r *http.Request) (string, bool) {
+	if token, ok := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer "); ok {
+		return token, true
+	}
+	if token := r.Header.Get("X-Api-Key"); token != "" {
+		return token, true
+	}
+	return "", false
 }
 
 // corsMiddleware adds CORS headers for localhost origins.
@@ -50,7 +62,7 @@ func corsMiddleware(next http.Handler) http.Handler {
 		if isLocalhostOrigin(origin) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Api-Key")
 			w.Header().Set("Vary", "Origin")
 		}
 

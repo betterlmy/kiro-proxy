@@ -64,6 +64,44 @@ curl http://127.0.0.1:3456/v1/chat/completions \
 
 支持文本、多轮消息、普通 function tools、流式 SSE、用量信息和推理强度。Responses 的 `previous_response_id` 仅在当前进程存活期间有效；重启后请由客户端发送完整历史。Kiro 不具备 OpenAI 托管 web search、file search、computer 或 MCP 工具的等价能力，代理会明确拒绝这些工具类型。
 
+### Docker 部署
+
+容器部署推荐使用 Kiro API key，不依赖宿主机 Kiro CLI 的 SQLite 凭据库。先在项目根目录创建 `.env`：
+
+```dotenv
+KIRO_API_KEY=ksk_...
+KIRO_API_REGION=us-east-1
+# 可选：为代理本身设置访问密钥
+# KIRO_PROXY_API_KEY=your-proxy-key
+```
+
+然后构建并启动：
+
+```bash
+docker compose up -d --build
+docker compose logs -f
+```
+
+服务默认监听 `3456` 端口；可通过 `.env` 中的 `KIRO_PROXY_PORT` 修改宿主机映射端口。
+
+#### 可选：构建时使用网络代理
+
+仓库不会保存代理地址。若构建环境需要代理，在执行 `docker compose` 前通过 shell 环境变量或本地 `.env` 提供即可：
+
+```bash
+HTTP_PROXY=http://<代理地址>:<端口>
+HTTPS_PROXY=http://<代理地址>:<端口>
+NO_PROXY=localhost,127.0.0.1
+```
+
+`compose.yaml` 会将这些变量作为 Docker 构建参数传入；未设置时保持直连，不影响 CI 或其他开发者。Dockerfile 本身不记录代理配置。
+
+### 认证与 Anthropic 会话兼容
+
+配置了 `KIRO_PROXY_API_KEY` 或 `-api-key` 时，优先使用 `Authorization: Bearer <key>`。为兼容旧 Anthropic 客户端，也支持 `x-api-key: <key>`；两者同时出现时 Bearer 优先。
+
+Anthropic 的 `X-Claude-Code-Session-Id` 仍可用于显式会话续接。若自定义客户端未发送该头，代理会自动生成本次会话 ID。
+
 ### Use with Claude Code
 
 ```bash

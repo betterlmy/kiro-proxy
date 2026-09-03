@@ -1,0 +1,18 @@
+name: kiro-proxy
+
+services:
+  kiro-proxy:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        HTTP_PROXY: ${HTTP_PROXY:-}
+        HTTPS_PROXY: ${HTTPS_PROXY:-}
+        NO_PROXY: ${NO_PROXY:-}
+    image: kiro-proxy:local
+    env_file:
+      - path: .env
+        required: false
+    ports:
+      - "${KIRO_PROXY_PORT:-3456}:3456"
+    restart: unless-stopped
