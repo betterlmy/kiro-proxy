@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/betterlmy/kiro-proxy/internal/anthropic"
 	"github.com/betterlmy/kiro-proxy/internal/respconv"
 )
 
@@ -75,6 +76,32 @@ func TestResponseInputMessages_CustomToolRoundTrip(t *testing.T) {
 	result := messages[1].Content.Blocks[0]
 	if result.ToolUseID != "call_patch" || result.Content.Text != "Done" {
 		t.Fatalf("custom tool result = %#v", result)
+	}
+}
+
+func TestResponseInputMessages_GroupsParallelToolRound(t *testing.T) {
+	messages, err := responseInputMessages([]any{
+		map[string]any{"type": "message", "role": "user", "content": "use both tools"},
+		map[string]any{"type": "function_call", "call_id": "call_1", "name": "first", "arguments": `{}`},
+		map[string]any{"type": "function_call", "call_id": "call_2", "name": "second", "arguments": `{}`},
+		map[string]any{"type": "function_call_output", "call_id": "call_1", "output": "first result"},
+		map[string]any{"type": "function_call_output", "call_id": "call_2", "output": "second result"},
+		map[string]any{"type": "message", "role": "user", "content": "continue"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) != 3 {
+		t.Fatalf("message count = %d, want 3", len(messages))
+	}
+	if got := len(messages[1].Content.Blocks); got != 2 {
+		t.Fatalf("assistant tool uses = %d, want 2", got)
+	}
+	if got := len(messages[2].Content.Blocks); got != 3 {
+		t.Fatalf("user blocks = %d, want 3", got)
+	}
+	if messages[2].Content.Blocks[0].Type != anthropic.BlockTypeToolResult || messages[2].Content.Blocks[1].Type != anthropic.BlockTypeToolResult || messages[2].Content.Blocks[2].Text != "continue" {
+		t.Fatalf("user blocks = %#v", messages[2].Content.Blocks)
 	}
 }
 

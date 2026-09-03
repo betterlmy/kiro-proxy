@@ -21,6 +21,28 @@ func TestToolNameMap_Shorten_Exact64(t *testing.T) {
 	}
 }
 
+func TestToolNameMap_Shorten_NormalizesInvalidCharacters(t *testing.T) {
+	m := NewToolNameMap()
+	name := "functions.exec"
+	short := m.Shorten(name)
+	if short == name || !isKiroToolName(short) || len(short) > maxToolNameLen {
+		t.Fatalf("normalized name = %q", short)
+	}
+	if got := m.Restore(short); got != name {
+		t.Fatalf("Restore(%q) = %q, want %q", short, got, name)
+	}
+}
+
+func TestToolNameMap_Shorten_NormalizedNameDoesNotCollide(t *testing.T) {
+	m := NewToolNameMap()
+	if got := m.Shorten("functions_exec"); got != "functions_exec" {
+		t.Fatalf("valid name = %q", got)
+	}
+	if got := m.Shorten("functions.exec"); got == "functions_exec" {
+		t.Fatal("normalized name collided with valid name")
+	}
+}
+
 func TestToolNameMap_Shorten_Long(t *testing.T) {
 	m := NewToolNameMap()
 	name := "mcp__plugin_chrome-devtools-mcp_chrome-devtools__get_network_request"

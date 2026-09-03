@@ -3,9 +3,12 @@ package openai
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -13,6 +16,7 @@ import (
 	"github.com/betterlmy/kiro-proxy/internal/auth"
 	"github.com/betterlmy/kiro-proxy/internal/kiroclient"
 	"github.com/betterlmy/kiro-proxy/internal/kiroproto"
+	"github.com/betterlmy/kiro-proxy/internal/logging"
 	"github.com/betterlmy/kiro-proxy/internal/models"
 	"github.com/betterlmy/kiro-proxy/internal/reqconv"
 	"github.com/betterlmy/kiro-proxy/internal/respconv"
@@ -113,6 +117,7 @@ func (s *Service) execute(w http.ResponseWriter, r *http.Request, input Request,
 	}
 	upstream, err := s.client.GenerateAssistantResponse(r.Context(), creds.AccessToken, payload, creds.Region)
 	if err != nil {
+		logUpstreamError(r.Context(), err, input, effort)
 		writeError(w, http.StatusBadGateway, "server_error", "upstream API error")
 		return
 	}
@@ -141,6 +146,79 @@ func (s *Service) execute(w http.ResponseWriter, r *http.Request, input Request,
 		}
 		writeJSON(w, body)
 	}
+}
+
+// logUpstreamError records safe metadata for a failed Kiro request. In
+// particular, it never logs the upstream response body because it can contain
+// request-derived or otherwise sensitive content.
+func logUpstreamError(ctx context.Context, err error, input Request, effort string) {
+	_, short := logging.TraceIDs(ctx)
+	attrs := []any{
+		"trace_id", short,
+		"continuation", input.PreviousResponseID != "",
+		"message_count", len(input.Messages),
+		"tool_count", len(input.Tools),
+		"tool_result_count", toolResultCount(input.Messages),
+		"stream", input.Stream,
+		"max_output_tokens", input.MaxTokens,
+	}
+	if effort != "" {
+		attrs = append(attrs, "reasoning_effort", effort)
+	}
+	var upstreamErr *kiroclient.UpstreamError
+	if errors.As(err, &upstreamErr) {
+		attrs = append(attrs,
+			"error_kind", "upstream_response",
+			"upstream_status", upstreamErr.Status,
+		)
+		if upstreamErr.Exception != "" {
+			attrs = append(attrs, "upstream_exception", upstreamErr.Exception)
+		}
+		if category := validationCategory(upstreamErr); category != "" {
+			attrs = append(attrs, "validation_category", category)
+		}
+	} else {
+		attrs = append(attrs, "error_kind", "transport")
+	}
+	slog.ErrorContext(ctx, "openai: upstream request failed", attrs...)
+}
+
+// validationCategory converts Kiro's untrusted validation body to a fixed,
+// non-sensitive diagnostic label. The original body is deliberately never
+// logged because it can include request-derived content.
+func validationCategory(err *kiroclient.UpstreamError) string {
+	if err.Exception != "ValidationException" {
+		return ""
+	}
+	body := strings.ToLower(err.Body)
+	switch {
+	case strings.Contains(body, "tool result") || strings.Contains(body, "toolresult"):
+		return "tool_result"
+	case strings.Contains(body, "schema"):
+		return "tool_schema"
+	case strings.Contains(body, "tool"):
+		return "tool"
+	case strings.Contains(body, "conversation") || strings.Contains(body, "history"):
+		return "history"
+	case strings.Contains(body, "token") || strings.Contains(body, "content") || strings.Contains(body, "length"):
+		return "limits"
+	case body != "":
+		return "other"
+	default:
+		return "unknown"
+	}
+}
+
+func toolResultCount(messages []anthropic.Message) int {
+	count := 0
+	for _, message := range messages {
+		for _, block := range message.Content.Blocks {
+			if block.Type == anthropic.BlockTypeToolResult {
+				count++
+			}
+		}
+	}
+	return count
 }
 
 func (s *Service) stream(w http.ResponseWriter, ctx context.Context, body io.Reader, acc *respconv.NonStreamingAccumulator, input Request, api surface, responseID, model, conversationID string) {
