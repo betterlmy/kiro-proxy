@@ -185,7 +185,7 @@ func (s *streamWriter) delta(delta respconv.EventDelta) {
 	if delta.ToolStop {
 		if s.responseTextOpen && s.api == surfaceResponses {
 			s.event(map[string]any{"type": "response.output_text.done", "output_index": s.responseOutputIndex, "content_index": 0, "item_id": "msg_" + s.id, "text": ""})
-			s.event(map[string]any{"type": "response.output_item.done", "output_index": s.responseOutputIndex, "item": map[string]any{"id": "msg_" + s.id, "type": "message", "role": "assistant", "status": "completed"}})
+			s.event(map[string]any{"type": "response.output_item.done", "output_index": s.responseOutputIndex, "item": map[string]any{"id": "msg_" + s.id, "type": "message", "role": "assistant", "status": "completed", "content": []any{}}})
 			s.responseTextOpen = false
 			s.responseOutputIndex++
 		}
@@ -222,7 +222,7 @@ func (s *streamWriter) finish(source map[string]any, includeUsage bool) {
 	if s.responseTextOpen {
 		text, _, _ := responseParts(source)
 		s.event(map[string]any{"type": "response.output_text.done", "output_index": s.responseOutputIndex, "content_index": 0, "item_id": "msg_" + s.id, "text": text})
-		s.event(map[string]any{"type": "response.output_item.done", "output_index": s.responseOutputIndex, "item": map[string]any{"id": "msg_" + s.id, "type": "message", "role": "assistant", "status": "completed"}})
+		s.event(map[string]any{"type": "response.output_item.done", "output_index": s.responseOutputIndex, "item": map[string]any{"id": "msg_" + s.id, "type": "message", "role": "assistant", "status": "completed", "content": []any{map[string]any{"type": "output_text", "text": text, "annotations": []any{}}}}})
 	}
 	if s.failed {
 		return

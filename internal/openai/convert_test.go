@@ -1,6 +1,7 @@
 package openai
 
 import (
+	"encoding/json"
 	"net/http/httptest"
 	"strings"
 	"testing"
@@ -113,4 +114,62 @@ func TestStreamWriter_CustomToolCall(t *testing.T) {
 			t.Fatalf("stream body missing %q: %s", want, body)
 		}
 	}
+}
+
+func TestStreamWriter_MessageDoneIncludesContent(t *testing.T) {
+	t.Run("工具调用前的消息使用空内容数组", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		writer := newStreamWriter(recorder, recorder, surfaceResponses, "resp_1", "model", "", nil)
+		writer.delta(respconv.EventDelta{TextDelta: "先说明"})
+		writer.delta(respconv.EventDelta{ToolStop: true, ToolUseID: "call_1", ToolName: "read_file", ToolInput: `{}`})
+
+		items := responseMessageDoneItems(t, recorder.Body.String())
+		if len(items) != 1 {
+			t.Fatalf("message done count = %d, want 1", len(items))
+		}
+		content, ok := items[0]["content"].([]any)
+		if !ok || len(content) != 0 {
+			t.Fatalf("message content = %#v, want empty array", items[0]["content"])
+		}
+	})
+
+	t.Run("收尾消息包含实际文本内容", func(t *testing.T) {
+		recorder := httptest.NewRecorder()
+		writer := newStreamWriter(recorder, recorder, surfaceResponses, "resp_1", "model", "", nil)
+		writer.delta(respconv.EventDelta{TextDelta: "完成"})
+		writer.finish(map[string]any{"content": []any{map[string]any{"type": "text", "text": "完成"}}}, false)
+
+		items := responseMessageDoneItems(t, recorder.Body.String())
+		if len(items) != 1 {
+			t.Fatalf("message done count = %d, want 1", len(items))
+		}
+		content := items[0]["content"].([]any)
+		part := content[0].(map[string]any)
+		if part["type"] != "output_text" || part["text"] != "完成" {
+			t.Fatalf("message content part = %#v", part)
+		}
+	})
+}
+
+func responseMessageDoneItems(t *testing.T, body string) []map[string]any {
+	t.Helper()
+	var items []map[string]any
+	for line := range strings.Lines(body) {
+		data, ok := strings.CutPrefix(strings.TrimSpace(line), "data: ")
+		if !ok {
+			continue
+		}
+		var event map[string]any
+		if err := json.Unmarshal([]byte(data), &event); err != nil {
+			t.Fatal(err)
+		}
+		if event["type"] != "response.output_item.done" {
+			continue
+		}
+		item, _ := event["item"].(map[string]any)
+		if item["type"] == "message" {
+			items = append(items, item)
+		}
+	}
+	return items
 }
