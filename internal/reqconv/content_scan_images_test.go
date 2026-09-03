@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/d-kuro/kirocc/internal/anthropic"
+	"github.com/betterlmy/kiro-proxy/internal/anthropic"
 )
 
 // Images nested in a tool_result must be promoted to the message-level image

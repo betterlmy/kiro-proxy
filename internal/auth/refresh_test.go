@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	tu "github.com/d-kuro/kirocc/internal/testutil"
+	tu "github.com/betterlmy/kiro-proxy/internal/testutil"
 	_ "modernc.org/sqlite"
 )
 

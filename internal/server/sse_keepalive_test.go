@@ -12,10 +12,10 @@ import (
 	"testing"
 	"time"
 
-	"github.com/d-kuro/kirocc/internal/auth"
-	"github.com/d-kuro/kirocc/internal/kiroclient"
-	"github.com/d-kuro/kirocc/internal/kiroproto"
-	tu "github.com/d-kuro/kirocc/internal/testutil"
+	"github.com/betterlmy/kiro-proxy/internal/auth"
+	"github.com/betterlmy/kiro-proxy/internal/kiroclient"
+	"github.com/betterlmy/kiro-proxy/internal/kiroproto"
+	tu "github.com/betterlmy/kiro-proxy/internal/testutil"
 )
 
 const toolSearchStreamingRequest = `{

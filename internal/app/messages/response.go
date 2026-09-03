@@ -11,12 +11,12 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/d-kuro/kirocc/internal/httpx"
-	"github.com/d-kuro/kirocc/internal/kiroclient"
-	"github.com/d-kuro/kirocc/internal/kiroproto"
-	"github.com/d-kuro/kirocc/internal/logging"
-	"github.com/d-kuro/kirocc/internal/models"
-	"github.com/d-kuro/kirocc/internal/respconv"
+	"github.com/betterlmy/kiro-proxy/internal/httpx"
+	"github.com/betterlmy/kiro-proxy/internal/kiroclient"
+	"github.com/betterlmy/kiro-proxy/internal/kiroproto"
+	"github.com/betterlmy/kiro-proxy/internal/logging"
+	"github.com/betterlmy/kiro-proxy/internal/models"
+	"github.com/betterlmy/kiro-proxy/internal/respconv"
 )
 
 // roundCredits rounds credit consumption to 3 decimals for human-readable

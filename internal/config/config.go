@@ -9,7 +9,7 @@ import (
 	"strconv"
 	"time"
 
-	"github.com/d-kuro/kirocc/internal/logging"
+	"github.com/betterlmy/kiro-proxy/internal/logging"
 )
 
 const (
@@ -19,15 +19,15 @@ const (
 	DefaultKeepAliveInterval = 15 * time.Second
 )
 
-// Config is the runtime configuration for kirocc.
+// Config is the runtime configuration for kiro-proxy.
 type Config struct {
 	Port   int
 	Host   string
 	DBPath string
-	APIKey string // guards kirocc's own endpoints; unrelated to KiroAPIKey
+	APIKey string // guards kiro-proxy's own endpoints; unrelated to KiroAPIKey
 	// KiroAPIKey is a Kiro API key ("ksk_…") used upstream instead of the
 	// kiro-cli database credential. Named after Kiro's own KIRO_API_KEY rather
-	// than the KIROCC_* convention, since it is Kiro's credential, not kirocc's.
+	// than the KIROCC_* convention, since it is Kiro's credential, not kiro-proxy's.
 	KiroAPIKey string
 	// KiroAPIRegion pins the AWS region used to build Kiro API endpoints
 	// (https://runtime.<region>.kiro.dev/ and the ListAvailableModels control
@@ -37,7 +37,7 @@ type Config struct {
 	// Empty means "use the credential's region" (us-east-1 for API-key auth).
 	KiroAPIRegion string
 	// ModelDiscovery enables fetching Kiro's model catalog at startup so newly
-	// launched models resolve without a kirocc release. Built-in mappings always
+	// launched models resolve without a kiro-proxy release. Built-in mappings always
 	// win; discovery only fills gaps.
 	ModelDiscovery    bool
 	Debug             bool
@@ -85,12 +85,15 @@ func DefaultDBPathFor(goos, home, localAppData string) string {
 	}
 }
 
-// ApplyEnvOverrides mutates cfg using KIROCC_* environment variables.
+// ApplyEnvOverrides mutates cfg using KIRO_PROXY_* environment variables.
+// KIROCC_* remains a deprecated compatibility alias; when both are present the
+// new name wins.
 func ApplyEnvOverrides(cfg *Config) error {
+	// Apply legacy names first so the new project prefix has precedence.
 	applyString("KIROCC_DB_PATH", &cfg.DBPath)
 	applyString("KIROCC_API_KEY", &cfg.APIKey)
 	// Kiro's own variable names, so a machine already set up for headless
-	// kiro-cli needs no kirocc-specific configuration.
+	// kiro-cli needs no kiro-proxy-specific configuration.
 	applyString("KIRO_API_KEY", &cfg.KiroAPIKey)
 	applyString("KIRO_API_REGION", &cfg.KiroAPIRegion)
 	applyString("KIROCC_HOST", &cfg.Host)
@@ -126,6 +129,43 @@ func ApplyEnvOverrides(cfg *Config) error {
 		return err
 	}
 	if err := applyBool("KIROCC_LOG_CONSOLE", &cfg.LogFile.Console); err != nil {
+		return err
+	}
+	applyString("KIRO_PROXY_DB_PATH", &cfg.DBPath)
+	applyString("KIRO_PROXY_API_KEY", &cfg.APIKey)
+	applyString("KIRO_PROXY_HOST", &cfg.Host)
+	if err := applyBool("KIRO_PROXY_MODEL_DISCOVERY", &cfg.ModelDiscovery); err != nil {
+		return err
+	}
+	if err := applyInt("KIRO_PROXY_PORT", &cfg.Port); err != nil {
+		return err
+	}
+	if err := applyBool("KIRO_PROXY_DEBUG", &cfg.Debug); err != nil {
+		return err
+	}
+	if err := applyBool("KIRO_PROXY_OTEL", &cfg.OTel); err != nil {
+		return err
+	}
+	if err := applyInt("KIRO_PROXY_OTEL_BODY_LIMIT", &cfg.OTelBodyLimit); err != nil {
+		return err
+	}
+	if err := applyDuration("KIRO_PROXY_KEEPALIVE_INTERVAL", &cfg.KeepAliveInterval); err != nil {
+		return err
+	}
+	applyString("KIRO_PROXY_LOG_FILE", &cfg.LogFile.Path)
+	if err := applyInt("KIRO_PROXY_LOG_MAX_SIZE", &cfg.LogFile.MaxSize); err != nil {
+		return err
+	}
+	if err := applyInt("KIRO_PROXY_LOG_MAX_BACKUPS", &cfg.LogFile.MaxBackups); err != nil {
+		return err
+	}
+	if err := applyInt("KIRO_PROXY_LOG_MAX_AGE", &cfg.LogFile.MaxAge); err != nil {
+		return err
+	}
+	if err := applyBool("KIRO_PROXY_LOG_COMPRESS", &cfg.LogFile.Compress); err != nil {
+		return err
+	}
+	if err := applyBool("KIRO_PROXY_LOG_CONSOLE", &cfg.LogFile.Console); err != nil {
 		return err
 	}
 	return nil

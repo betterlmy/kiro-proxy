@@ -3,7 +3,7 @@ package toolsearch
 import (
 	"testing"
 
-	"github.com/d-kuro/kirocc/internal/anthropic"
+	"github.com/betterlmy/kiro-proxy/internal/anthropic"
 )
 
 func TestNewContext(t *testing.T) {

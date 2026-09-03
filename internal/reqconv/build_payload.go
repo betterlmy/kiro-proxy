@@ -1,11 +1,11 @@
 package reqconv
 
 import (
-	"github.com/d-kuro/kirocc/internal/advisor"
-	"github.com/d-kuro/kirocc/internal/anthropic"
-	"github.com/d-kuro/kirocc/internal/kiroproto"
-	"github.com/d-kuro/kirocc/internal/models"
-	"github.com/d-kuro/kirocc/internal/toolsearch"
+	"github.com/betterlmy/kiro-proxy/internal/advisor"
+	"github.com/betterlmy/kiro-proxy/internal/anthropic"
+	"github.com/betterlmy/kiro-proxy/internal/kiroproto"
+	"github.com/betterlmy/kiro-proxy/internal/models"
+	"github.com/betterlmy/kiro-proxy/internal/toolsearch"
 	"github.com/google/uuid"
 )
 

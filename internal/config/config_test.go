@@ -211,6 +211,23 @@ func TestApplyEnvOverrides_LogFields(t *testing.T) {
 	}
 }
 
+func TestApplyEnvOverrides_NewPrefixWinsOverLegacy(t *testing.T) {
+	t.Setenv("KIROCC_PORT", "4010")
+	t.Setenv("KIRO_PROXY_PORT", "4020")
+	t.Setenv("KIROCC_DEBUG", "false")
+	t.Setenv("KIRO_PROXY_DEBUG", "true")
+	cfg := Config{Host: "127.0.0.1", Port: 3456}
+	if err := ApplyEnvOverrides(&cfg); err != nil {
+		t.Fatalf("ApplyEnvOverrides: %v", err)
+	}
+	if cfg.Port != 4020 {
+		t.Errorf("Port = %d, want 4020", cfg.Port)
+	}
+	if !cfg.Debug {
+		t.Error("Debug = false, want true")
+	}
+}
+
 func TestApplyEnvOverrides_KiroAPIRegion(t *testing.T) {
 	t.Setenv("KIRO_API_REGION", "eu-central-1")
 	cfg := Config{Host: "127.0.0.1", Port: 3456}

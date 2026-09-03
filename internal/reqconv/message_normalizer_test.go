@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/d-kuro/kirocc/internal/anthropic"
+	"github.com/betterlmy/kiro-proxy/internal/anthropic"
 )
 
 func TestNormalize_FullPipeline(t *testing.T) {

@@ -6,9 +6,9 @@ import (
 	"net/url"
 	"strings"
 
-	"github.com/d-kuro/kirocc/internal/httpx"
-	"github.com/d-kuro/kirocc/internal/logging"
-	"github.com/d-kuro/kirocc/internal/tracing"
+	"github.com/betterlmy/kiro-proxy/internal/httpx"
+	"github.com/betterlmy/kiro-proxy/internal/logging"
+	"github.com/betterlmy/kiro-proxy/internal/tracing"
 )
 
 func traceMiddleware(next http.Handler) http.Handler {

@@ -3,7 +3,7 @@ package respconv
 import (
 	"testing"
 
-	"github.com/d-kuro/kirocc/internal/kiroproto"
+	"github.com/betterlmy/kiro-proxy/internal/kiroproto"
 )
 
 func TestBuildNonStreamingResponse_RedactedThinking(t *testing.T) {

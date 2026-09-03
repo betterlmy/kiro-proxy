@@ -1,10 +1,10 @@
 # Release Process
 
-This document describes the release process for kirocc.
+This document describes the release process for kiro-proxy.
 
 ## Overview
 
-kirocc uses [GoReleaser](https://goreleaser.com/) for automated releases. When a version tag is pushed, GitHub Actions automatically builds multi-platform binaries, publishes them to GitHub Releases, and updates the Homebrew tap.
+kiro-proxy uses [GoReleaser](https://goreleaser.com/) for automated releases. When a version tag is pushed, GitHub Actions automatically builds multi-platform binaries, publishes them to GitHub Releases, and updates the Homebrew tap.
 
 ## Prerequisites
 
@@ -72,16 +72,16 @@ Description of the feature.
 ### Homebrew
 
 \`\`\`bash
-brew upgrade kirocc
+brew upgrade kiro-proxy
 \`\`\`
 
 ### go install
 
 \`\`\`bash
-go install github.com/d-kuro/kirocc/cmd/kirocc@v0.0.X
+go install github.com/betterlmy/kiro-proxy/cmd/kiro-proxy@v0.0.X
 \`\`\`
 
-**Full Changelog**: https://github.com/d-kuro/kirocc/compare/v0.0.PREV...v0.0.X
+**Full Changelog**: https://github.com/betterlmy/kiro-proxy/compare/v0.0.PREV...v0.0.X
 ```
 
 #### Contributors section
@@ -144,7 +144,7 @@ When a tag is pushed, the following happens automatically:
 
 ## Version Scheme
 
-kirocc follows [Semantic Versioning](https://semver.org/):
+kiro-proxy follows [Semantic Versioning](https://semver.org/):
 
 - **MAJOR**: Breaking changes
 - **MINOR**: New features (backward compatible)

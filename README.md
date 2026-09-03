@@ -1,18 +1,20 @@
-# kirocc
+# kiro-proxy
 
-A local proxy server that relays Anthropic Messages API-compatible requests to the Kiro (Amazon Q) backend using Kiro CLI credentials.
+`kiro-proxy` 是将 Anthropic Messages API、OpenAI Chat Completions API 和 OpenAI Responses API 转发到 Kiro（Amazon Q）后端的本地多协议代理。
 
-Just set `ANTHROPIC_BASE_URL` from any Anthropic API client (e.g., Claude Code) to use Claude models via Kiro.
+使用 Kiro CLI 登录凭据或 `KIRO_API_KEY` 即可运行；已有 Anthropic/Claude Code 配置保持兼容。
 
 ## Features
 
 - **Anthropic Messages API compatible** — Supports `/v1/messages` (streaming / non-streaming), `/v1/messages/count_tokens`, and `/v1/models`
+- **OpenAI Chat Completions compatible** — Supports `/v1/chat/completions`, including streaming, `reasoning_effort`, and function tools
+- **OpenAI Responses compatible** — Supports `/v1/responses`, including streaming, function tools, and process-local `previous_response_id` continuation
 - **Request conversion** — Automatically converts Anthropic API requests to Kiro API (AWS Event Stream) format
 - **Response conversion** — Converts Kiro event streams back to Anthropic SSE format
 - **Automatic auth management** — Reads credentials from Kiro CLI's SQLite DB with automatic token refresh (Social / OIDC)
 - **Kiro API key authentication** — Alternatively authenticate with a `KIRO_API_KEY` (`ksk_…`) for headless environments (CI, containers) where an interactive Kiro login is not available
 - **Model mapping** — Maps Anthropic model names (e.g., `claude-sonnet-4-6`) to Kiro model names. Customizable via environment variable
-- **Automatic model discovery** — Fetches Kiro's model catalog (`ListAvailableModels`) at startup, so models Kiro launches after a kirocc release resolve with the right context window and effort levels without a code change. Built-in mappings always win; discovery only fills gaps
+- **Automatic model discovery** — Fetches Kiro's model catalog (`ListAvailableModels`) at startup, so models Kiro launches after a kiro-proxy release resolve with the right context window and effort levels without a code change. Built-in mappings always win; discovery only fills gaps
 - **Custom API region** — Pin the region in `runtime.<region>.kiro.dev` with `-kiro-api-region`, for accounts whose stored credential region is not one Kiro serves
 - **Extended Thinking** — Enable via the `[1m]` suffix, the `thinking` field, or `output_config.effort`. Reasoning depth travels natively as `additionalModelRequestFields.output_config.effort` (validated against each model's enum; defaults to `medium` for effort-capable models when thinking is on without an explicit effort)
 - **Tool Search** — Proxy-side implementation of Anthropic's [Tool Search Tool](https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-search-tool). Supports `tool_search_tool_regex_20251119` and `tool_search_tool_bm25_20251119` with `defer_loading` for on-demand tool discovery
@@ -33,16 +35,10 @@ Just set `ANTHROPIC_BASE_URL` from any Anthropic API client (e.g., Claude Code) 
 
 ## Installation
 
-### Homebrew
-
-```bash
-brew install d-kuro/tap/kirocc
-```
-
 ### go install
 
 ```bash
-go install github.com/d-kuro/kirocc/cmd/kirocc@latest
+go install github.com/betterlmy/kiro-proxy/cmd/kiro-proxy@latest
 ```
 
 ## Usage
@@ -50,23 +46,36 @@ go install github.com/d-kuro/kirocc/cmd/kirocc@latest
 ### Start the server
 
 ```bash
-kirocc
+kiro-proxy
 ```
 
 Listens on `http://127.0.0.1:3456` by default.
+
+### 使用 OpenAI 兼容客户端
+
+将客户端的 base URL 设置为 `http://127.0.0.1:3456/v1`，API key 可填任意非空值（除非启动时通过 `-api-key` 或 `KIRO_PROXY_API_KEY` 设置了代理访问密钥）。
+
+```bash
+curl http://127.0.0.1:3456/v1/chat/completions \
+  -H 'Authorization: Bearer local' \
+  -H 'Content-Type: application/json' \
+  -d '{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"你好"}]}'
+```
+
+支持文本、多轮消息、普通 function tools、流式 SSE、用量信息和推理强度。Responses 的 `previous_response_id` 仅在当前进程存活期间有效；重启后请由客户端发送完整历史。Kiro 不具备 OpenAI 托管 web search、file search、computer 或 MCP 工具的等价能力，代理会明确拒绝这些工具类型。
 
 ### Use with Claude Code
 
 ```bash
 export ANTHROPIC_BASE_URL=http://127.0.0.1:3456
 export ANTHROPIC_AUTH_TOKEN=dummy
-export CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1   # optional: adds kirocc's models to the /model picker
+export CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1   # optional: adds kiro-proxy's models to the /model picker
 claude
 ```
 
-`ANTHROPIC_AUTH_TOKEN` is required by Claude Code but not used for authentication by kirocc (credentials are read from Kiro CLI's DB). Any non-empty value works unless `-api-key` is set.
+`ANTHROPIC_AUTH_TOKEN` is required by Claude Code but not used for authentication by kiro-proxy (credentials are read from Kiro CLI's DB). Any non-empty value works unless `-api-key` is set.
 
-`CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1` makes Claude Code fetch `GET /v1/models` from kirocc and list the results in the `/model` picker under "From gateway" — including the "(1M context)" entries (see [1M context with Claude Code](#1m-context-with-claude-code)) and the GPT 5.6 models via their `claude-gpt-5.6-*` aliases (see [Model picker integration](#model-picker-integration-discovery-aliases)).
+`CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1` makes Claude Code fetch `GET /v1/models` from kiro-proxy and list the results in the `/model` picker under "From gateway" — including the "(1M context)" entries (see [1M context with Claude Code](#1m-context-with-claude-code)) and the GPT 5.6 models via their `claude-gpt-5.6-*` aliases (see [Model picker integration](#model-picker-integration-discovery-aliases)).
 
 > [!IMPORTANT]
 > For the 1M context window you must pick a "(1M context)" entry in `/model` — see [1M context with Claude Code](#1m-context-with-claude-code).
@@ -77,12 +86,12 @@ For headless environments (CI, containers, remote machines) where an interactive
 
 ```bash
 export KIRO_API_KEY=ksk_...          # your Kiro API key
-kirocc                               # no Kiro CLI login or database needed
+kiro-proxy                               # no Kiro CLI login or database needed
 ```
 
 When `KIRO_API_KEY` is set:
 
-- The SQLite credential database is **never opened** — kirocc does not need Kiro CLI installed
+- The SQLite credential database is **never opened** — kiro-proxy does not need Kiro CLI installed
 - No token refresh occurs — the key is presented directly to the Kiro API
 - A revoked key surfaces as a 401 from the API at request time
 - An empty or unset key falls back to the credential database as before
@@ -133,27 +142,29 @@ API keys are available for Kiro Pro, Pro+, Pro Max, and Power subscribers. On gr
 
 Command-line options can be overridden with environment variables.
 
+`KIRO_PROXY_*` 是正式前缀。原 `KIROCC_*` 变量在当前兼容期内仍可使用；两者同时存在时以 `KIRO_PROXY_*` 为准。
+
 | Variable                    | Corresponding option  |
 | --------------------------- | --------------------- |
-| `KIROCC_PORT`               | `-port`               |
-| `KIROCC_HOST`               | `-host`               |
-| `KIROCC_DB_PATH`            | `-db`                 |
-| `KIROCC_API_KEY`            | `-api-key`            |
+| `KIRO_PROXY_PORT`               | `-port`               |
+| `KIRO_PROXY_HOST`               | `-host`               |
+| `KIRO_PROXY_DB_PATH`            | `-db`                 |
+| `KIRO_PROXY_API_KEY`            | `-api-key`            |
 | `KIRO_API_KEY`              | `-kiro-api-key`       |
 | `KIRO_API_REGION`           | `-kiro-api-region`    |
-| `KIROCC_MODEL_DISCOVERY`    | `-model-discovery`    |
-| `KIROCC_KEEPALIVE_INTERVAL` | `-keepalive-interval` |
-| `KIROCC_DEBUG`              | `-debug`              |
-| `KIROCC_LOG_FILE`           | `-log-file`           |
-| `KIROCC_LOG_MAX_SIZE`       | `-log-max-size`       |
-| `KIROCC_LOG_MAX_BACKUPS`    | `-log-max-backups`    |
-| `KIROCC_LOG_MAX_AGE`        | `-log-max-age`        |
-| `KIROCC_LOG_COMPRESS`       | `-log-compress`       |
-| `KIROCC_LOG_CONSOLE`        | `-log-console`        |
-| `KIROCC_OTEL`               | `-otel`               |
-| `KIROCC_OTEL_BODY_LIMIT`    | `-otel-body-limit`    |
+| `KIRO_PROXY_MODEL_DISCOVERY`    | `-model-discovery`    |
+| `KIRO_PROXY_KEEPALIVE_INTERVAL` | `-keepalive-interval` |
+| `KIRO_PROXY_DEBUG`              | `-debug`              |
+| `KIRO_PROXY_LOG_FILE`           | `-log-file`           |
+| `KIRO_PROXY_LOG_MAX_SIZE`       | `-log-max-size`       |
+| `KIRO_PROXY_LOG_MAX_BACKUPS`    | `-log-max-backups`    |
+| `KIRO_PROXY_LOG_MAX_AGE`        | `-log-max-age`        |
+| `KIRO_PROXY_LOG_COMPRESS`       | `-log-compress`       |
+| `KIRO_PROXY_LOG_CONSOLE`        | `-log-console`        |
+| `KIRO_PROXY_OTEL`               | `-otel`               |
+| `KIRO_PROXY_OTEL_BODY_LIMIT`    | `-otel-body-limit`    |
 
-`KIRO_API_KEY` and `KIRO_API_REGION` intentionally keep Kiro's own names rather than the `KIROCC_` prefix, so a machine already configured for headless kiro-cli needs no kirocc-specific setup.
+`KIRO_API_KEY` and `KIRO_API_REGION` intentionally keep Kiro's own names rather than the `KIRO_PROXY_` prefix, so a machine already configured for headless kiro-cli needs no kiro-proxy-specific setup.
 
 ### Custom API region
 
@@ -162,7 +173,7 @@ Kiro API endpoints are region-scoped: completions go to `runtime.<region>.kiro.d
 That default is not always a region Kiro serves. kiro-cli records the region you signed in from, and only a few regions have Kiro hosts — `us-east-1`, `eu-central-1`, `us-gov-east-1`, `us-gov-west-1` at the time of writing. If your credential resolves to anything else, the hostname does not exist and every request fails with an upstream error. `-kiro-api-region` pins the region instead:
 
 ```bash
-kirocc -kiro-api-region us-east-1
+kiro-proxy -kiro-api-region us-east-1
 ```
 
 ```
@@ -174,9 +185,9 @@ The override applies to the API endpoints only. Token refresh still targets the 
 
 ### Automatic model discovery
 
-At startup kirocc calls Kiro's `ListAvailableModels` and installs the result as a fallback layer behind the built-in mapping table. A model Kiro launches after a kirocc release therefore resolves with its real context window and effort enum instead of falling back to pass-through defaults, and shows up in `GET /v1/models`.
+At startup kiro-proxy calls Kiro's `ListAvailableModels` and installs the result as a fallback layer behind the built-in mapping table. A model Kiro launches after a kiro-proxy release therefore resolves with its real context window and effort enum instead of falling back to pass-through defaults, and shows up in `GET /v1/models`.
 
-Resolution order is `KIROCC_MODEL_MAPPINGS` → built-in table → discovered catalog, first match wins. Built-ins deliberately win: they encode behaviour a mechanically derived entry cannot reproduce, such as which `[1m]` aliases must _not_ enable extended thinking and which SKU a 1M request routes to.
+Resolution order is `KIRO_PROXY_MODEL_MAPPINGS` → built-in table → discovered catalog, first match wins. Built-ins deliberately win: they encode behaviour a mechanically derived entry cannot reproduce, such as which `[1m]` aliases must _not_ enable extended thinking and which SKU a 1M request routes to.
 
 Discovery is best-effort and never blocks startup or fails a request. It is skipped when the credential has no profile ARN (which is the case for `-kiro-api-key` auth, since the API requires one), and any error leaves the built-in table in place:
 
@@ -194,18 +205,18 @@ Enable distributed tracing to visualize the full request chain in Jaeger, Grafan
 # Start a local collector (e.g., Grafana LGTM stack)
 docker run -d --name lgtm -p 3000:3000 -p 4317:4317 -p 4318:4318 grafana/otel-lgtm
 
-# Start kirocc with tracing enabled
-kirocc -otel
+# Start kiro-proxy with tracing enabled
+kiro-proxy -otel
 ```
 
 The OTLP endpoint defaults to `http://localhost:4318` and can be configured via the standard `OTEL_EXPORTER_OTLP_ENDPOINT` environment variable.
 
 ### Custom model mappings
 
-Use the `KIROCC_MODEL_MAPPINGS` environment variable to override model name mappings.
+Use the `KIRO_PROXY_MODEL_MAPPINGS` environment variable to override model name mappings.
 
 ```bash
-export KIROCC_MODEL_MAPPINGS='[{"anthropic":"my-model","kiro":"claude-sonnet-4.5","context_window_size":200000}]'
+export KIRO_PROXY_MODEL_MAPPINGS='[{"anthropic":"my-model","kiro":"claude-sonnet-4.5","context_window_size":200000}]'
 ```
 
 Optional fields: `kiro_1m` (the SKU a 1M request routes to; set it equal to `kiro` for an always-1M model) and `display_name` (adds the entry to `/v1/models`, so Claude Code's picker lists it — plus a `(1M context)` variant when `kiro_1m` is a separate SKU). An `anthropic` ID may carry the `[1m]` suffix in either case; it is canonicalized to `[1m]`. Because overrides win the lookup, an override that shadows a built-in ID also replaces its `[1m]` entry — the list only advertises a 1M ID when the override can actually deliver it.
@@ -216,8 +227,10 @@ Optional fields: `kiro_1m` (the SKU a 1M request routes to; set it equal to `kir
 | -------------------------------- | ---------------------------------------- |
 | `GET /health`                    | Health check                             |
 | `GET /v1/models`                 | List available models                    |
-| `POST /v1/messages`              | Messages API (streaming / non-streaming) |
-| `POST /v1/messages/count_tokens` | Token count (approximate \*)             |
+| `POST /v1/messages`              | Anthropic Messages API                   |
+| `POST /v1/messages/count_tokens` | Anthropic token count (approximate \*)  |
+| `POST /v1/chat/completions`      | OpenAI Chat Completions API              |
+| `POST /v1/responses`             | OpenAI Responses API                     |
 
 \* `count_tokens` uses the `cl100k_base` encoding from [tiktoken-go](https://github.com/pkoukk/tiktoken-go), which differs from Claude's actual tokenizer. The returned value is an approximation.
 
@@ -229,7 +242,7 @@ flowchart TB
         CC["Claude Code / Anthropic API Client"]
     end
 
-    subgraph kirocc ["kirocc (localhost:3456)"]
+    subgraph kiro-proxy ["kiro-proxy (localhost:3456)"]
         direction TB
         MW["Middleware<br/>(OTel Tracing, Trace ID, CORS, API Key Auth)"]
         Handler["Messages Handler"]
@@ -274,7 +287,7 @@ flowchart TB
 
 ### Request flow
 
-1. Client sends an Anthropic Messages API request to kirocc
+1. Client sends an Anthropic Messages API request to kiro-proxy
 2. Middleware assigns a trace ID, handles CORS, and validates the API key
 3. Auth reads/refreshes credentials from Kiro CLI's SQLite DB
 4. Handler resolves the model name and determines thinking mode
@@ -299,7 +312,7 @@ flowchart TB
 
 ### Extended Thinking
 
-kiro-cli 2.10.0 expresses reasoning depth natively through `output_config.effort`. kirocc forwards it as `additionalModelRequestFields.output_config.effort` at the request root (sibling of `conversationState`):
+kiro-cli 2.10.0 expresses reasoning depth natively through `output_config.effort`. kiro-proxy forwards it as `additionalModelRequestFields.output_config.effort` at the request root (sibling of `conversationState`):
 
 ```json
 {
@@ -357,13 +370,13 @@ GPT-specific effort rules:
 - `thinking.type: "disabled"` → `reasoning.effort: "none"` (takes precedence over an explicit effort)
 - Explicit `output_config.effort` → validated against the GPT enum (`none`, `low`, `medium`, `high`, `xhigh`, `max`) and forwarded as `reasoning.effort`
 
-GPT reasoning streams as opaque `redacted_thinking` blocks (base64 blobs, no visible thinking text). The blob arrives **after** text/tool_use in the upstream stream and is surfaced to the client in that order. During tool-use continuations the client must send the `redacted_thinking` block back; kirocc replays it as `reasoningContent.redactedContent` in the request history only while that tool round is in flight.
+GPT reasoning streams as opaque `redacted_thinking` blocks (base64 blobs, no visible thinking text). The blob arrives **after** text/tool_use in the upstream stream and is surfaced to the client in that order. During tool-use continuations the client must send the `redacted_thinking` block back; kiro-proxy replays it as `reasoningContent.redactedContent` in the request history only while that tool round is in flight.
 
 The `[1m]` suffix and `context-1m` header are not supported for GPT models (`gpt-5.6-sol[1m]` does not resolve). Context window is 272k input / 128k output; limits are enforced by the backend, not the proxy.
 
 #### Model picker integration (discovery aliases)
 
-Claude Code's [gateway model discovery](https://code.claude.com/docs/en/llm-gateway-protocol) fetches `GET /v1/models` and adds the results to the `/model` picker — but it silently drops any ID that doesn't start with `claude` or `anthropic`, so the bare `gpt-5.6-*` IDs never appear. kirocc therefore also advertises `claude-` prefixed discovery aliases:
+Claude Code's [gateway model discovery](https://code.claude.com/docs/en/llm-gateway-protocol) fetches `GET /v1/models` and adds the results to the `/model` picker — but it silently drops any ID that doesn't start with `claude` or `anthropic`, so the bare `gpt-5.6-*` IDs never appear. kiro-proxy therefore also advertises `claude-` prefixed discovery aliases:
 
 | Alias                  | Kiro model      | Picker label    |
 | ---------------------- | --------------- | --------------- |
@@ -384,7 +397,7 @@ The picker shows them under "From gateway" using the `display_name` values above
 
 ### Tool Search
 
-The Kiro backend does not support Anthropic's [Tool Search Tool](https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-search-tool). kirocc implements it proxy-side with an inner loop:
+The Kiro backend does not support Anthropic's [Tool Search Tool](https://platform.claude.com/docs/en/agents-and-tools/tool-use/tool-search-tool). kiro-proxy implements it proxy-side with an inner loop:
 
 1. Client sends `tool_search_tool_regex_20251119` (or `bm25`) + tools with `defer_loading: true`
 2. Proxy partitions tools into active (sent to Kiro) and deferred (held for search)
@@ -434,14 +447,14 @@ Unmatched `claude-*` models are passed through as-is. Non-claude models fall bac
 
 #### 1M context with Claude Code
 
-Claude Code (verified against 2.1.232) decides the context window **client-side, from the session model string**: a model whose ID matches `/\[1m\]/i` gets the 1M window; everything else served through a custom `ANTHROPIC_BASE_URL` gets 200k and auto-compacts at ~160k — even when upstream actually has 1M of context. Neither the response `model` field nor anything else kirocc returns can influence this.
+Claude Code (verified against 2.1.232) decides the context window **client-side, from the session model string**: a model whose ID matches `/\[1m\]/i` gets the 1M window; everything else served through a custom `ANTHROPIC_BASE_URL` gets 200k and auto-compacts at ~160k — even when upstream actually has 1M of context. Neither the response `model` field nor anything else kiro-proxy returns can influence this.
 
 To get the 1M window, the **session model itself** must carry the suffix:
 
-- With `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1`, pick a "(1M context)" entry in the `/model` picker — kirocc advertises `claude-opus-5[1m]` ("Opus 5 (1M context)"), `claude-sonnet-4-6[1m]` ("Sonnet 4.6 (1M context)"), etc. in `GET /v1/models` for exactly this purpose. Discovery results are cached in `~/.claude/cache/gateway-models.json`, so restart Claude Code after upgrading kirocc.
+- With `CLAUDE_CODE_ENABLE_GATEWAY_MODEL_DISCOVERY=1`, pick a "(1M context)" entry in the `/model` picker — kiro-proxy advertises `claude-opus-5[1m]` ("Opus 5 (1M context)"), `claude-sonnet-4-6[1m]` ("Sonnet 4.6 (1M context)"), etc. in `GET /v1/models` for exactly this purpose. Discovery results are cached in `~/.claude/cache/gateway-models.json`, so restart Claude Code after upgrading kiro-proxy.
 - Or set the model explicitly: `claude --model 'claude-opus-5[1m]'`, `ANTHROPIC_MODEL=claude-opus-5[1m]`, or `"model"` in settings.json.
 
-A `[1m]` session model also makes Claude Code send `Anthropic-Beta: context-1m-2025-08-07` on every request; kirocc treats that header as a context-window signal only (it never enables thinking — see [Extended Thinking](#extended-thinking)).
+A `[1m]` session model also makes Claude Code send `Anthropic-Beta: context-1m-2025-08-07` on every request; kiro-proxy treats that header as a context-window signal only (it never enables thinking — see [Extended Thinking](#extended-thinking)).
 
 #### Response model ID
 

@@ -4,7 +4,7 @@ import (
 	"slices"
 	"testing"
 
-	"github.com/d-kuro/kirocc/internal/anthropic"
+	"github.com/betterlmy/kiro-proxy/internal/anthropic"
 )
 
 func TestExtractToolReferences(t *testing.T) {

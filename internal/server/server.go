@@ -4,9 +4,10 @@ import (
 	"net/http"
 	"time"
 
-	messagesapp "github.com/d-kuro/kirocc/internal/app/messages"
-	"github.com/d-kuro/kirocc/internal/kiroclient"
-	"github.com/d-kuro/kirocc/internal/tracing"
+	messagesapp "github.com/betterlmy/kiro-proxy/internal/app/messages"
+	"github.com/betterlmy/kiro-proxy/internal/kiroclient"
+	"github.com/betterlmy/kiro-proxy/internal/openai"
+	"github.com/betterlmy/kiro-proxy/internal/tracing"
 )
 
 // ServerOption configures a Server.
@@ -31,7 +32,7 @@ func WithKeepAliveInterval(interval time.Duration) ServerOption {
 	return func(s *Server) { s.keepAliveInterval = interval }
 }
 
-// Server is the HTTP server for the kirocc proxy.
+// Server is the HTTP server for the kiro-proxy proxy.
 type Server struct {
 	apiKey            string
 	otel              bool
@@ -40,6 +41,7 @@ type Server struct {
 	keepAliveInterval time.Duration
 	mux               *http.ServeMux
 	messages          *messagesapp.Service
+	openai            *openai.Service
 }
 
 // New creates a new Server.
@@ -55,6 +57,7 @@ func New(authMgr messagesapp.TokenGetter, apiKey string, client kiroclient.Clien
 		messagesapp.WithCapture(s.captureEnabled),
 		messagesapp.WithKeepAliveInterval(s.keepAliveInterval),
 	)
+	s.openai = openai.New(authMgr, client)
 	s.registerRoutes()
 	return s
 }
@@ -73,4 +76,6 @@ func (s *Server) registerRoutes() {
 	s.mux.HandleFunc("GET /v1/models", s.handleModels)
 	s.mux.HandleFunc("POST /v1/messages/count_tokens", s.messages.HandleCountTokens)
 	s.mux.HandleFunc("POST /v1/messages", s.messages.HandleMessages)
+	s.mux.HandleFunc("POST /v1/chat/completions", s.openai.HandleChatCompletions)
+	s.mux.HandleFunc("POST /v1/responses", s.openai.HandleResponses)
 }

@@ -5,11 +5,11 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/d-kuro/kirocc/internal/anthropic"
-	"github.com/d-kuro/kirocc/internal/auth"
-	"github.com/d-kuro/kirocc/internal/httpx"
-	"github.com/d-kuro/kirocc/internal/kiroproto"
-	"github.com/d-kuro/kirocc/internal/logging"
+	"github.com/betterlmy/kiro-proxy/internal/anthropic"
+	"github.com/betterlmy/kiro-proxy/internal/auth"
+	"github.com/betterlmy/kiro-proxy/internal/httpx"
+	"github.com/betterlmy/kiro-proxy/internal/kiroproto"
+	"github.com/betterlmy/kiro-proxy/internal/logging"
 )
 
 // invocation bundles everything callAndHandle needs for one upstream attempt.

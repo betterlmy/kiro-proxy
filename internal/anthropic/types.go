@@ -290,7 +290,7 @@ func (t Tool) IsAdvisorTool() bool {
 	return t.Type == ToolTypeAdvisor
 }
 
-// IsServerTool reports whether this tool is a server-side tool that kirocc
+// IsServerTool reports whether this tool is a server-side tool that kiro-proxy
 // emulates in-proxy and must never forward to the Kiro backend as a callable
 // function tool.
 func (t Tool) IsServerTool() bool {
@@ -299,7 +299,7 @@ func (t Tool) IsServerTool() bool {
 
 // CallableTools returns the tools that should be forwarded to the Kiro backend
 // as callable function tools, filtering out server-side tool definitions that
-// kirocc emulates itself. The result must be used for both tool conversion and
+// kiro-proxy emulates itself. The result must be used for both tool conversion and
 // cache-point placement, which walk the tool list and the converted entries in
 // lockstep.
 func CallableTools(tools []Tool) []Tool {

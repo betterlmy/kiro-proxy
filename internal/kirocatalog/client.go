@@ -1,5 +1,5 @@
 // Package kirocatalog fetches Kiro's model catalog via ListAvailableModels so
-// kirocc can resolve models that shipped after its own release.
+// kiro-proxy can resolve models that shipped after its own release.
 //
 // The catalog lives on a different host from the streaming API: models come from
 // the control plane at management.<region>.kiro.dev, while completions go to
@@ -27,7 +27,7 @@ const (
 	respBodyLimit = 1 << 20
 )
 
-// Model is one model advertised by the catalog, reduced to the fields kirocc
+// Model is one model advertised by the catalog, reduced to the fields kiro-proxy
 // uses for resolution.
 type Model struct {
 	ID              string

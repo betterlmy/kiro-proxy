@@ -3,8 +3,8 @@ package messages
 import (
 	"testing"
 
-	"github.com/d-kuro/kirocc/internal/advisor"
-	"github.com/d-kuro/kirocc/internal/logging"
+	"github.com/betterlmy/kiro-proxy/internal/advisor"
+	"github.com/betterlmy/kiro-proxy/internal/logging"
 )
 
 func testAdvisorContext(t *testing.T) *advisor.Context {

@@ -123,10 +123,14 @@ var envCache struct {
 	parsed []Mapping
 }
 
-// envMappings parses KIROCC_MODEL_MAPPINGS env var and returns the overrides.
+// envMappings parses KIRO_PROXY_MODEL_MAPPINGS (or the deprecated
+// KIROCC_MODEL_MAPPINGS alias) and returns the overrides.
 // Results are cached and only re-parsed when the env var value changes.
 func envMappings() []Mapping {
-	raw := os.Getenv("KIROCC_MODEL_MAPPINGS")
+	raw := os.Getenv("KIRO_PROXY_MODEL_MAPPINGS")
+	if raw == "" {
+		raw = os.Getenv("KIROCC_MODEL_MAPPINGS")
+	}
 
 	envCache.mu.Lock()
 	defer envCache.mu.Unlock()
@@ -143,7 +147,7 @@ func envMappings() []Mapping {
 	}
 	var mappings []Mapping
 	if err := json.Unmarshal([]byte(raw), &mappings); err != nil {
-		slog.Warn("KIROCC_MODEL_MAPPINGS: invalid JSON, ignoring", "err", err)
+		slog.Warn("KIRO_PROXY_MODEL_MAPPINGS: invalid JSON, ignoring", "err", err)
 		envCache.parsed = nil
 		return nil
 	}
@@ -389,7 +393,7 @@ type ModelInfo struct {
 // it is a `[1m]` row or carries a DisplayName. A named mapping whose 1M window
 // lives in a separate SKU also gets a `[1m]` entry, so both windows are
 // pickable — but only when that ID really resolves to 1M, so the list never
-// offers a window kirocc cannot deliver. Env overrides and discovered models
+// offers a window kiro-proxy cannot deliver. Env overrides and discovered models
 // are included.
 //
 // The `[1m]` entries exist for Claude Code: its context-window logic runs

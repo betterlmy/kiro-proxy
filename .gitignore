@@ -37,6 +37,7 @@ dist/
 # Project local directories
 _tmp/
 _docs/
+.codegraph/
 
 # Debug logs
 debug.log

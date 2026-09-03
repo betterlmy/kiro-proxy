@@ -1,13 +1,13 @@
 // Package advisor emulates Anthropic's advisor server-side tool inside the
 // proxy. The client sends an `advisor_20260301` tool definition naming a
-// stronger model; when the executor model calls it, kirocc issues a separate
+// stronger model; when the executor model calls it, kiro-proxy issues a separate
 // upstream request to that model with the conversation so far and returns the
 // guidance as an advisor_tool_result block.
 package advisor
 
 import (
-	"github.com/d-kuro/kirocc/internal/anthropic"
-	"github.com/d-kuro/kirocc/internal/kiroproto"
+	"github.com/betterlmy/kiro-proxy/internal/anthropic"
+	"github.com/betterlmy/kiro-proxy/internal/kiroproto"
 )
 
 // KiroToolName is the name of the synthetic Kiro-side advisor tool. It matches

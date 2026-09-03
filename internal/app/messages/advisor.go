@@ -4,12 +4,12 @@ import (
 	"context"
 	"log/slog"
 
-	"github.com/d-kuro/kirocc/internal/advisor"
-	"github.com/d-kuro/kirocc/internal/anthropic"
-	"github.com/d-kuro/kirocc/internal/kiroproto"
-	"github.com/d-kuro/kirocc/internal/logging"
-	"github.com/d-kuro/kirocc/internal/reqconv"
-	"github.com/d-kuro/kirocc/internal/respconv"
+	"github.com/betterlmy/kiro-proxy/internal/advisor"
+	"github.com/betterlmy/kiro-proxy/internal/anthropic"
+	"github.com/betterlmy/kiro-proxy/internal/kiroproto"
+	"github.com/betterlmy/kiro-proxy/internal/logging"
+	"github.com/betterlmy/kiro-proxy/internal/reqconv"
+	"github.com/betterlmy/kiro-proxy/internal/respconv"
 )
 
 // advisorOutcome is the result of one advisor consultation. Exactly one of

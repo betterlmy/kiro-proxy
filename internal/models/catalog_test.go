@@ -118,7 +118,7 @@ func TestSetCatalog_DiscoveredModelResolves(t *testing.T) {
 	}
 }
 
-// The catalog advertises 1M input for claude-sonnet-4.6, but kirocc deliberately
+// The catalog advertises 1M input for claude-sonnet-4.6, but kiro-proxy deliberately
 // routes bare sonnet-4.6 to the 200k window and only switches to the -1m SKU on
 // an explicit 1M opt-in. Discovery must not quietly change that.
 func TestSetCatalog_BuiltinsWin(t *testing.T) {

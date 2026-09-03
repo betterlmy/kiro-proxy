@@ -1,19 +1,19 @@
 
-BIN := dist/kirocc
+BIN := dist/kiro-proxy
 
 .PHONY: build install run debug test test-e2e lint vet fmt fix clean
 
 build:
-	go build -o $(BIN) ./cmd/kirocc
+	go build -o $(BIN) ./cmd/kiro-proxy
 
 install:
-	go install ./cmd/kirocc
+	go install ./cmd/kiro-proxy
 
 run:
-	go run ./cmd/kirocc $(ARGS)
+	go run ./cmd/kiro-proxy $(ARGS)
 
 debug:
-	go run ./cmd/kirocc -debug $(ARGS)
+	go run ./cmd/kiro-proxy -debug $(ARGS)
 
 test:
 	go test -race ./...

@@ -1,8 +1,8 @@
 package reqconv
 
 import (
-	"github.com/d-kuro/kirocc/internal/anthropic"
-	"github.com/d-kuro/kirocc/internal/kiroproto"
+	"github.com/betterlmy/kiro-proxy/internal/anthropic"
+	"github.com/betterlmy/kiro-proxy/internal/kiroproto"
 )
 
 // ApplyToolCachePoints inserts cachePoint entries into the tools array

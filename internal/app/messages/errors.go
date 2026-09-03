@@ -6,8 +6,8 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/d-kuro/kirocc/internal/httpx"
-	"github.com/d-kuro/kirocc/internal/kiroclient"
+	"github.com/betterlmy/kiro-proxy/internal/httpx"
+	"github.com/betterlmy/kiro-proxy/internal/kiroclient"
 )
 
 // Re-exports of httpx error type constants so in-package callers stay concise.

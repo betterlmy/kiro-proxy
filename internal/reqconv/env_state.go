@@ -4,7 +4,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/d-kuro/kirocc/internal/kiroproto"
+	"github.com/betterlmy/kiro-proxy/internal/kiroproto"
 )
 
 // envBlockRe isolates the <env>...</env> block Claude Code embeds in the system

@@ -10,8 +10,8 @@ import (
 	"net/http"
 	"slices"
 
-	"github.com/d-kuro/kirocc/internal/kiroproto"
-	"github.com/d-kuro/kirocc/internal/logging"
+	"github.com/betterlmy/kiro-proxy/internal/kiroproto"
+	"github.com/betterlmy/kiro-proxy/internal/logging"
 )
 
 type upstreamCapturedEvent struct {

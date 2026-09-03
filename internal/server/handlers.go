@@ -4,8 +4,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/d-kuro/kirocc/internal/httpx"
-	"github.com/d-kuro/kirocc/internal/models"
+	"github.com/betterlmy/kiro-proxy/internal/httpx"
+	"github.com/betterlmy/kiro-proxy/internal/models"
 )
 
 func (s *Server) handleHealth(w http.ResponseWriter, _ *http.Request) {

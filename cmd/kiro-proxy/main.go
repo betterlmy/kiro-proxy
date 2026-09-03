@@ -14,15 +14,15 @@ import (
 	"syscall"
 	"time"
 
-	"github.com/d-kuro/kirocc/internal/auth"
-	"github.com/d-kuro/kirocc/internal/config"
-	"github.com/d-kuro/kirocc/internal/kirocatalog"
-	"github.com/d-kuro/kirocc/internal/kiroclient"
-	"github.com/d-kuro/kirocc/internal/logging"
-	"github.com/d-kuro/kirocc/internal/models"
-	"github.com/d-kuro/kirocc/internal/server"
-	"github.com/d-kuro/kirocc/internal/tokencount"
-	"github.com/d-kuro/kirocc/internal/tracing"
+	"github.com/betterlmy/kiro-proxy/internal/auth"
+	"github.com/betterlmy/kiro-proxy/internal/config"
+	"github.com/betterlmy/kiro-proxy/internal/kirocatalog"
+	"github.com/betterlmy/kiro-proxy/internal/kiroclient"
+	"github.com/betterlmy/kiro-proxy/internal/logging"
+	"github.com/betterlmy/kiro-proxy/internal/models"
+	"github.com/betterlmy/kiro-proxy/internal/server"
+	"github.com/betterlmy/kiro-proxy/internal/tokencount"
+	"github.com/betterlmy/kiro-proxy/internal/tracing"
 )
 
 func main() {
@@ -88,7 +88,7 @@ func run(ctx context.Context, args []string) error {
 		slog.Warn("server is binding to a non-loopback address without an API key — all endpoints are unauthenticated",
 			"host", cfg.Host)
 	}
-	slog.Info("kirocc listening", "addr", "http://"+addr)
+	slog.Info("kiro-proxy listening", "addr", "http://"+addr)
 	slog.Info("set ANTHROPIC_BASE_URL to use with Claude Code", "url", "http://"+addr)
 
 	httpSrv := &http.Server{
@@ -111,7 +111,7 @@ func run(ctx context.Context, args []string) error {
 }
 
 func parseFlags(args []string) (config.Config, error) {
-	fs := flag.NewFlagSet("kirocc", flag.ContinueOnError)
+	fs := flag.NewFlagSet("kiro-proxy", flag.ContinueOnError)
 	var cfg config.Config
 	fs.IntVar(&cfg.Port, "port", 3456, "listen port")
 	fs.StringVar(&cfg.Host, "host", "127.0.0.1", "bind host")
@@ -119,7 +119,7 @@ func parseFlags(args []string) (config.Config, error) {
 	fs.StringVar(&cfg.APIKey, "api-key", "", "optional API key for authentication")
 	fs.StringVar(&cfg.KiroAPIKey, "kiro-api-key", "", "Kiro API key (ksk_...) to use instead of the kiro-cli database credential; also KIRO_API_KEY")
 	fs.StringVar(&cfg.KiroAPIRegion, "kiro-api-region", "", "region for Kiro API endpoints (runtime.<region>.kiro.dev); overrides the credential's region; also KIRO_API_REGION")
-	fs.BoolVar(&cfg.ModelDiscovery, "model-discovery", true, "fetch Kiro's model catalog at startup so new models resolve without a kirocc update; also KIROCC_MODEL_DISCOVERY")
+	fs.BoolVar(&cfg.ModelDiscovery, "model-discovery", true, "fetch Kiro's model catalog at startup so new models resolve without a kiro-proxy update; also KIRO_PROXY_MODEL_DISCOVERY")
 	fs.BoolVar(&cfg.Debug, "debug", false, "enable debug logging with OTel JSON Lines output")
 	fs.BoolVar(&cfg.OTel, "otel", false, "enable OpenTelemetry tracing (OTLP HTTP exporter)")
 	fs.IntVar(&cfg.OTelBodyLimit, "otel-body-limit", config.DefaultOTelBodyLimit, "max bytes of request body to capture in OTel spans (0 = unlimited)")

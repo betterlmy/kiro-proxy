@@ -32,7 +32,7 @@ var catalog struct {
 
 // SetCatalog installs a discovered model catalog and returns the Kiro SKUs that
 // the built-in table did not already cover, for logging. Non-Claude models are
-// ignored: kirocc speaks the Anthropic Messages API, and its fallback for a
+// ignored: kiro-proxy speaks the Anthropic Messages API, and its fallback for a
 // non-claude request is DefaultModel.
 func SetCatalog(discovered []CatalogModel) []string {
 	var (

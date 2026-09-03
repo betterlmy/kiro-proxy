@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/d-kuro/kirocc/internal/httpx"
+	"github.com/betterlmy/kiro-proxy/internal/httpx"
 )
 
 func TestWriteError_AuthenticationError(t *testing.T) {

@@ -1,4 +1,4 @@
-module github.com/d-kuro/kirocc
+module github.com/betterlmy/kiro-proxy
 
 go 1.27.0
 

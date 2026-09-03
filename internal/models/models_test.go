@@ -533,7 +533,7 @@ func TestListModels_UppercaseSuffixOverrideIsNotDoubleSuffixed(t *testing.T) {
 // The published ID set must agree with what Resolve can actually route.
 // /v1/models is a promise: a `[1m]` entry that resolves to the 200k window, or
 // any entry that matches no mapping at all (so Resolve falls back), offers the
-// picker a choice kirocc cannot honour.
+// picker a choice kiro-proxy cannot honour.
 func TestListModels_AdvertisedIDsResolveAsAdvertised(t *testing.T) {
 	tests := []struct {
 		name        string

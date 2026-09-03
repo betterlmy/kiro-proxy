@@ -105,7 +105,7 @@ func TestE2E_Advisor_ModelReachable(t *testing.T) {
 }
 
 // The full advisor loop against the real Kiro backend: the executor calls the
-// synthetic advisor tool, kirocc issues a real subcall to the advisor model,
+// synthetic advisor tool, kiro-proxy issues a real subcall to the advisor model,
 // and the client sees server_tool_use + advisor_tool_result + usage.iterations.
 func TestE2E_Advisor_NonStreaming(t *testing.T) {
 	url := newRealServer(t)

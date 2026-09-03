@@ -7,7 +7,7 @@ import (
 	"go.opentelemetry.io/otel/attribute"
 	"go.opentelemetry.io/otel/trace"
 
-	"github.com/d-kuro/kirocc/internal/logging"
+	"github.com/betterlmy/kiro-proxy/internal/logging"
 )
 
 // sanitizedHeaderAttrs converts HTTP headers to OTel attributes, redacting sensitive values.

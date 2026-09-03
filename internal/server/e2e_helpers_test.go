@@ -11,11 +11,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/d-kuro/kirocc/internal/auth"
-	"github.com/d-kuro/kirocc/internal/kiroclient"
-	"github.com/d-kuro/kirocc/internal/kiroproto"
-	"github.com/d-kuro/kirocc/internal/logging"
-	tu "github.com/d-kuro/kirocc/internal/testutil"
+	"github.com/betterlmy/kiro-proxy/internal/auth"
+	"github.com/betterlmy/kiro-proxy/internal/kiroclient"
+	"github.com/betterlmy/kiro-proxy/internal/kiroproto"
+	"github.com/betterlmy/kiro-proxy/internal/logging"
+	tu "github.com/betterlmy/kiro-proxy/internal/testutil"
 )
 
 // newTCP4TestServer creates an httptest.Server bound to tcp4 to avoid IPv6 bind failures in sandboxed environments.

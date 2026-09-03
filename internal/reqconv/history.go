@@ -5,8 +5,8 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/d-kuro/kirocc/internal/anthropic"
-	"github.com/d-kuro/kirocc/internal/kiroproto"
+	"github.com/betterlmy/kiro-proxy/internal/anthropic"
+	"github.com/betterlmy/kiro-proxy/internal/kiroproto"
 	"github.com/google/uuid"
 )
 
@@ -30,7 +30,7 @@ func extractToolUseIDs(msg anthropic.Message) []string {
 //
 // A blob is attributed to the nearest tool-call block (tool_use or
 // server_tool_use) after it, falling back to the nearest one before it — this
-// covers both kirocc's emission order (blob after its tool_use) and the
+// covers both kiro-proxy's emission order (blob after its tool_use) and the
 // Anthropic replay convention (thinking blocks first). Blobs attributed to a
 // server_tool_use belong to an internal tool-search round whose reasoning the
 // backend has already consumed; replaying them against the final tool round

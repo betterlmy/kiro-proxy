@@ -3,8 +3,8 @@ package reqconv
 import (
 	"testing"
 
-	"github.com/d-kuro/kirocc/internal/advisor"
-	"github.com/d-kuro/kirocc/internal/anthropic"
+	"github.com/betterlmy/kiro-proxy/internal/advisor"
+	"github.com/betterlmy/kiro-proxy/internal/anthropic"
 )
 
 func advisorTestResolver(model string) (string, string, bool) {
@@ -62,7 +62,7 @@ func TestBuildPayloadExcludesAdvisorDefinitionFromCallableTools(t *testing.T) {
 }
 
 // With an advisor context installed, the synthetic zero-parameter Kiro tool is
-// injected instead — the executor calls that and kirocc intercepts it.
+// injected instead — the executor calls that and kiro-proxy intercepts it.
 func TestBuildPayloadInjectsSyntheticAdvisorTool(t *testing.T) {
 	tools := []anthropic.Tool{
 		{Name: "Read", Description: "read", InputSchema: map[string]any{"type": "object"}},

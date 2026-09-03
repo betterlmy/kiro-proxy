@@ -446,7 +446,7 @@ func TestCoalesce(t *testing.T) {
 }
 
 func TestOpenDB(t *testing.T) {
-	f, err := os.CreateTemp("", "kirocc-test-*.db")
+	f, err := os.CreateTemp("", "kiro-proxy-test-*.db")
 	if err != nil {
 		t.Fatalf("create temp file: %v", err)
 	}

@@ -10,11 +10,11 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/d-kuro/kirocc/internal/anthropic"
-	"github.com/d-kuro/kirocc/internal/httpx"
-	"github.com/d-kuro/kirocc/internal/models"
-	"github.com/d-kuro/kirocc/internal/reqconv"
-	"github.com/d-kuro/kirocc/internal/tokencount"
+	"github.com/betterlmy/kiro-proxy/internal/anthropic"
+	"github.com/betterlmy/kiro-proxy/internal/httpx"
+	"github.com/betterlmy/kiro-proxy/internal/models"
+	"github.com/betterlmy/kiro-proxy/internal/reqconv"
+	"github.com/betterlmy/kiro-proxy/internal/tokencount"
 )
 
 // HandleCountTokens serves POST /v1/messages/count_tokens.

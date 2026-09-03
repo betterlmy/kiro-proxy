@@ -1,7 +1,7 @@
 package respconv
 
 import (
-	"github.com/d-kuro/kirocc/internal/anthropic"
+	"github.com/betterlmy/kiro-proxy/internal/anthropic"
 )
 
 // AdvisorIteration is one advisor consultation's usage entry, reported in

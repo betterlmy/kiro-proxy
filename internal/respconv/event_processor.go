@@ -4,7 +4,7 @@ import (
 	"encoding/json/jsontext"
 	"math"
 
-	"github.com/d-kuro/kirocc/internal/kiroproto"
+	"github.com/betterlmy/kiro-proxy/internal/kiroproto"
 )
 
 // ProcessEvent processes a single Kiro event and returns the delta for this event.

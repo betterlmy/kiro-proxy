@@ -5,14 +5,14 @@ import (
 	"log/slog"
 	"net/http"
 
-	"github.com/d-kuro/kirocc/internal/advisor"
-	"github.com/d-kuro/kirocc/internal/anthropic"
-	"github.com/d-kuro/kirocc/internal/auth"
-	"github.com/d-kuro/kirocc/internal/httpx"
-	"github.com/d-kuro/kirocc/internal/logging"
-	"github.com/d-kuro/kirocc/internal/models"
-	"github.com/d-kuro/kirocc/internal/reqconv"
-	"github.com/d-kuro/kirocc/internal/toolsearch"
+	"github.com/betterlmy/kiro-proxy/internal/advisor"
+	"github.com/betterlmy/kiro-proxy/internal/anthropic"
+	"github.com/betterlmy/kiro-proxy/internal/auth"
+	"github.com/betterlmy/kiro-proxy/internal/httpx"
+	"github.com/betterlmy/kiro-proxy/internal/logging"
+	"github.com/betterlmy/kiro-proxy/internal/models"
+	"github.com/betterlmy/kiro-proxy/internal/reqconv"
+	"github.com/betterlmy/kiro-proxy/internal/toolsearch"
 )
 
 const headerCCSessionID = "X-Claude-Code-Session-Id"

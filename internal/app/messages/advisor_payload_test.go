@@ -4,9 +4,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/d-kuro/kirocc/internal/advisor"
-	"github.com/d-kuro/kirocc/internal/anthropic"
-	"github.com/d-kuro/kirocc/internal/reqconv"
+	"github.com/betterlmy/kiro-proxy/internal/advisor"
+	"github.com/betterlmy/kiro-proxy/internal/anthropic"
+	"github.com/betterlmy/kiro-proxy/internal/reqconv"
 )
 
 // advisorOrchestrator builds an orchestrator whose only job is payload

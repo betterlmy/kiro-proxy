@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/d-kuro/kirocc/internal/config"
+	"github.com/betterlmy/kiro-proxy/internal/config"
 )
 
 func TestRun_HelpFlagReturnsNoError(t *testing.T) {

@@ -1,6 +1,6 @@
 package toolsearch
 
-import "github.com/d-kuro/kirocc/internal/kiroproto"
+import "github.com/betterlmy/kiro-proxy/internal/kiroproto"
 
 // KiroToolSearchName is the name of the Kiro-side tool search tool.
 const KiroToolSearchName = "ToolSearch"

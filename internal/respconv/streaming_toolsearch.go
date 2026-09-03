@@ -1,8 +1,8 @@
 package respconv
 
 import (
-	"github.com/d-kuro/kirocc/internal/anthropic"
-	"github.com/d-kuro/kirocc/internal/toolsearch"
+	"github.com/betterlmy/kiro-proxy/internal/anthropic"
+	"github.com/betterlmy/kiro-proxy/internal/toolsearch"
 )
 
 // ServerToolUseBlock builds a server_tool_use content block. Input is carried
