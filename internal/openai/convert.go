@@ -127,13 +127,13 @@ func responseInputMessages(input any) ([]anthropic.Message, error) {
 			}
 			switch role {
 			case "user":
-				result = appendResponseMessage(result, anthropic.Message{Role: "user", Content: anthropic.MessageContent{Text: content}})
+				result = appendNormalizedMessage(result, anthropic.Message{Role: "user", Content: anthropic.MessageContent{Text: content}})
 			case "assistant":
-				result = appendResponseMessage(result, anthropic.Message{Role: "assistant", Content: anthropic.MessageContent{Text: content}})
+				result = appendNormalizedMessage(result, anthropic.Message{Role: "assistant", Content: anthropic.MessageContent{Text: content}})
 			case "system", "developer":
 				// Responses' system/developer items are treated as a user-side
 				// instruction because this API surface carries no separate field.
-				result = appendResponseMessage(result, anthropic.Message{Role: "user", Content: anthropic.MessageContent{Text: content}})
+				result = appendNormalizedMessage(result, anthropic.Message{Role: "user", Content: anthropic.MessageContent{Text: content}})
 			default:
 				return nil, fmt.Errorf("unsupported input message role %q", role)
 			}
@@ -146,16 +146,19 @@ func responseInputMessages(input any) ([]anthropic.Message, error) {
 			if err != nil {
 				return nil, err
 			}
-			result = appendResponseMessage(result, anthropic.Message{Role: "user", Content: anthropic.MessageContent{Blocks: []anthropic.ContentBlock{{Type: anthropic.BlockTypeToolResult, ToolUseID: callID, Content: anthropic.MessageContent{Text: content}}}}})
+			result = appendNormalizedMessage(result, anthropic.Message{Role: "user", Content: anthropic.MessageContent{Blocks: []anthropic.ContentBlock{{Type: anthropic.BlockTypeToolResult, ToolUseID: callID, Content: anthropic.MessageContent{Text: content}}}}})
 		case "function_call":
 			callID, _ := item["call_id"].(string)
 			name, _ := item["name"].(string)
+			if callID == "" || name == "" {
+				return nil, fmt.Errorf("function_call requires call_id and name")
+			}
 			arguments, _ := item["arguments"].(string)
 			input, err := objectFromJSON(arguments)
 			if err != nil {
 				return nil, fmt.Errorf("invalid function_call arguments: %w", err)
 			}
-			result = appendResponseMessage(result, anthropic.Message{Role: "assistant", Content: anthropic.MessageContent{Blocks: []anthropic.ContentBlock{{Type: anthropic.BlockTypeToolUse, ID: callID, Name: name, Input: input}}}})
+			result = appendNormalizedMessage(result, anthropic.Message{Role: "assistant", Content: anthropic.MessageContent{Blocks: []anthropic.ContentBlock{{Type: anthropic.BlockTypeToolUse, ID: callID, Name: name, Input: input}}}})
 		case "custom_tool_call":
 			callID, _ := item["call_id"].(string)
 			name, _ := item["name"].(string)
@@ -163,7 +166,7 @@ func responseInputMessages(input any) ([]anthropic.Message, error) {
 			if callID == "" || name == "" {
 				return nil, fmt.Errorf("custom_tool_call requires call_id and name")
 			}
-			result = appendResponseMessage(result, anthropic.Message{Role: "assistant", Content: anthropic.MessageContent{Blocks: []anthropic.ContentBlock{{Type: anthropic.BlockTypeToolUse, ID: callID, Name: name, Input: map[string]any{"input": input}}}}})
+			result = appendNormalizedMessage(result, anthropic.Message{Role: "assistant", Content: anthropic.MessageContent{Blocks: []anthropic.ContentBlock{{Type: anthropic.BlockTypeToolUse, ID: callID, Name: name, Input: map[string]any{"input": input}}}}})
 		default:
 			return nil, fmt.Errorf("unsupported input item type %q", typ)
 		}
@@ -171,11 +174,10 @@ func responseInputMessages(input any) ([]anthropic.Message, error) {
 	return result, nil
 }
 
-// appendResponseMessage preserves an OpenAI Responses tool-call batch as one
-// Anthropic message. Kiro requires all parallel calls in an assistant turn and
-// their results in the following user turn, rather than alternating one call
-// and one result at a time.
-func appendResponseMessage(messages []anthropic.Message, next anthropic.Message) []anthropic.Message {
+// appendNormalizedMessage preserves an OpenAI tool-call batch as one Anthropic
+// turn for both Chat Completions and Responses. Kiro requires all parallel calls
+// in an assistant turn and their results in the following user turn.
+func appendNormalizedMessage(messages []anthropic.Message, next anthropic.Message) []anthropic.Message {
 	if len(messages) == 0 || messages[len(messages)-1].Role != next.Role {
 		return append(messages, next)
 	}

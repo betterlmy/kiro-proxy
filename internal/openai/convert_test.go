@@ -105,6 +105,101 @@ func TestResponseInputMessages_GroupsParallelToolRound(t *testing.T) {
 	}
 }
 
+func TestChatRequestNormalize_GroupsParallelToolRound(t *testing.T) {
+	var input ChatRequest
+	if err := json.Unmarshal([]byte(`{
+		"model":"claude-sonnet-4-6",
+		"messages":[
+			{"role":"user","content":"use both tools"},
+			{"role":"assistant","content":null,"tool_calls":[
+				{"id":"call_1","type":"function","function":{"name":"first","arguments":"{}"}},
+				{"id":"call_2","type":"function","function":{"name":"second","arguments":"{}"}}
+			]},
+			{"role":"tool","tool_call_id":"call_1","content":"first result"},
+			{"role":"tool","tool_call_id":"call_2","content":"second result"},
+			{"role":"user","content":"continue"}
+		]
+	}`), &input); err != nil {
+		t.Fatal(err)
+	}
+
+	request, err := input.Normalize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(request.Messages) != 3 {
+		t.Fatalf("message count = %d, want 3", len(request.Messages))
+	}
+	if got := len(request.Messages[1].Content.Blocks); got != 2 {
+		t.Fatalf("assistant tool uses = %d, want 2", got)
+	}
+	userBlocks := request.Messages[2].Content.Blocks
+	if got := len(userBlocks); got != 3 {
+		t.Fatalf("user blocks = %d, want 3", got)
+	}
+	if userBlocks[0].ToolUseID != "call_1" || userBlocks[1].ToolUseID != "call_2" || userBlocks[2].Text != "continue" {
+		t.Fatalf("user blocks = %#v", userBlocks)
+	}
+}
+
+func TestOpenAIRequestNormalize_RejectsIncompleteToolCalls(t *testing.T) {
+	tests := []struct {
+		name string
+		run  func() error
+		want string
+	}{
+		{
+			name: "chat missing id",
+			run: func() error {
+				var input ChatRequest
+				if err := json.Unmarshal([]byte(`{"model":"model","messages":[{"role":"assistant","tool_calls":[{"type":"function","function":{"name":"read","arguments":"{}"}}]}]}`), &input); err != nil {
+					return err
+				}
+				_, err := input.Normalize()
+				return err
+			},
+			want: "requires id",
+		},
+		{
+			name: "chat missing function name",
+			run: func() error {
+				var input ChatRequest
+				if err := json.Unmarshal([]byte(`{"model":"model","messages":[{"role":"assistant","tool_calls":[{"id":"call_1","type":"function","function":{"arguments":"{}"}}]}]}`), &input); err != nil {
+					return err
+				}
+				_, err := input.Normalize()
+				return err
+			},
+			want: "requires function name",
+		},
+		{
+			name: "responses missing call id",
+			run: func() error {
+				_, err := responseInputMessages([]any{map[string]any{"type": "function_call", "name": "read", "arguments": `{}`}})
+				return err
+			},
+			want: "requires call_id and name",
+		},
+		{
+			name: "responses missing name",
+			run: func() error {
+				_, err := responseInputMessages([]any{map[string]any{"type": "function_call", "call_id": "call_1", "arguments": `{}`}})
+				return err
+			},
+			want: "requires call_id and name",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := tt.run()
+			if err == nil || !strings.Contains(err.Error(), tt.want) {
+				t.Fatalf("error = %v, want containing %q", err, tt.want)
+			}
+		})
+	}
+}
+
 func TestResponseOutput_CustomTool(t *testing.T) {
 	source := map[string]any{"content": []any{
 		map[string]any{"type": "tool_use", "id": "call_patch", "name": "apply_patch", "input": map[string]any{"input": "*** Begin Patch"}},

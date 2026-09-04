@@ -127,7 +127,7 @@ func (r ChatRequest) Normalize() (Request, error) {
 				system = append(system, text)
 			}
 		case "user":
-			result.Messages = append(result.Messages, anthropic.Message{Role: "user", Content: anthropic.MessageContent{Text: text}})
+			result.Messages = appendNormalizedMessage(result.Messages, anthropic.Message{Role: "user", Content: anthropic.MessageContent{Text: text}})
 		case "assistant":
 			blocks := make([]anthropic.ContentBlock, 0, len(message.ToolCalls)+1)
 			if text != "" {
@@ -137,6 +137,12 @@ func (r ChatRequest) Normalize() (Request, error) {
 				if call.Type != "" && call.Type != "function" {
 					return Request{}, fmt.Errorf("unsupported assistant tool call type %q", call.Type)
 				}
+				if call.ID == "" {
+					return Request{}, fmt.Errorf("assistant tool call requires id")
+				}
+				if call.Function.Name == "" {
+					return Request{}, fmt.Errorf("assistant tool call requires function name")
+				}
 				input, err := objectFromJSON(call.Function.Arguments)
 				if err != nil {
 					return Request{}, fmt.Errorf("invalid tool call arguments: %w", err)
@@ -144,15 +150,15 @@ func (r ChatRequest) Normalize() (Request, error) {
 				blocks = append(blocks, anthropic.ContentBlock{Type: anthropic.BlockTypeToolUse, ID: call.ID, Name: call.Function.Name, Input: input})
 			}
 			if len(blocks) == 0 {
-				result.Messages = append(result.Messages, anthropic.Message{Role: "assistant", Content: anthropic.MessageContent{Text: ""}})
+				result.Messages = appendNormalizedMessage(result.Messages, anthropic.Message{Role: "assistant", Content: anthropic.MessageContent{Text: ""}})
 			} else {
-				result.Messages = append(result.Messages, anthropic.Message{Role: "assistant", Content: anthropic.MessageContent{Blocks: blocks}})
+				result.Messages = appendNormalizedMessage(result.Messages, anthropic.Message{Role: "assistant", Content: anthropic.MessageContent{Blocks: blocks}})
 			}
 		case "tool", "function":
 			if message.ToolCallID == "" {
 				return Request{}, fmt.Errorf("tool messages require tool_call_id")
 			}
-			result.Messages = append(result.Messages, anthropic.Message{Role: "user", Content: anthropic.MessageContent{Blocks: []anthropic.ContentBlock{{Type: anthropic.BlockTypeToolResult, ToolUseID: message.ToolCallID, Content: anthropic.MessageContent{Text: text}}}}})
+			result.Messages = appendNormalizedMessage(result.Messages, anthropic.Message{Role: "user", Content: anthropic.MessageContent{Blocks: []anthropic.ContentBlock{{Type: anthropic.BlockTypeToolResult, ToolUseID: message.ToolCallID, Content: anthropic.MessageContent{Text: text}}}}})
 		default:
 			return Request{}, fmt.Errorf("unsupported message role %q", message.Role)
 		}

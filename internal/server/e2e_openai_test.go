@@ -44,6 +44,49 @@ func TestOpenAIChatCompletions_TextAndTools(t *testing.T) {
 	}
 }
 
+func TestOpenAIChatCompletions_ParallelToolResults(t *testing.T) {
+	client := &capturingClient{events: textEvents("done")}
+	ts := newE2EServer(t, client)
+	defer ts.Close()
+
+	resp := postOpenAI(t, ts.URL, "/v1/chat/completions", `{
+		"model":"claude-sonnet-4-6",
+		"messages":[
+			{"role":"user","content":"use both tools"},
+			{"role":"assistant","content":null,"tool_calls":[
+				{"id":"call_1","type":"function","function":{"name":"first","arguments":"{}"}},
+				{"id":"call_2","type":"function","function":{"name":"second","arguments":"{}"}}
+			]},
+			{"role":"tool","tool_call_id":"call_1","content":"first result"},
+			{"role":"tool","tool_call_id":"call_2","content":"second result"},
+			{"role":"user","content":"continue"}
+		],
+		"tools":[
+			{"type":"function","function":{"name":"first","parameters":{"type":"object"}}},
+			{"type":"function","function":{"name":"second","parameters":{"type":"object"}}}
+		]
+	}`)
+	defer resp.Body.Close()
+	requireStatus(t, resp, http.StatusOK)
+	_ = decodeResponse(t, resp)
+	requireCaptured(t, client)
+
+	current := client.captured.ConversationState.CurrentMessage.UserInputMessage
+	if current.Content != "continue" {
+		t.Fatalf("upstream content = %q, want continue", current.Content)
+	}
+	if current.UserInputMessageContext == nil {
+		t.Fatal("upstream current message context is nil")
+	}
+	results := current.UserInputMessageContext.ToolResults
+	if len(results) != 2 {
+		t.Fatalf("upstream tool results = %d, want 2", len(results))
+	}
+	if results[0].ToolUseID != "call_1" || results[1].ToolUseID != "call_2" {
+		t.Fatalf("upstream tool result ids = %q, %q", results[0].ToolUseID, results[1].ToolUseID)
+	}
+}
+
 func TestOpenAIResponses_StreamAndContinuation(t *testing.T) {
 	client := &multiResponseClient{responses: [][]any{textEvents("first"), textEvents("second")}}
 	ts := newE2EServerWithClient(t, client)
