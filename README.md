@@ -7,8 +7,8 @@
 ## Features
 
 - **Anthropic Messages API compatible** — Supports `/v1/messages` (streaming / non-streaming), `/v1/messages/count_tokens`, and `/v1/models`
-- **OpenAI Chat Completions compatible** — Supports `/v1/chat/completions`, including streaming, `reasoning_effort`, and function tools
-- **OpenAI Responses compatible** — Supports `/v1/responses`, including streaming, function tools, and process-local `previous_response_id` continuation
+- **OpenAI Chat Completions compatible** — Supports `/v1/chat/completions`, including streaming, `reasoning_effort`, function tools, and inline image content
+- **OpenAI Responses compatible** — Supports `/v1/responses`, including strict SSE lifecycle events, function tools, opaque reasoning state, inline image content, and bounded process-local `previous_response_id` continuation
 - **Request conversion** — Automatically converts Anthropic API requests to Kiro API (AWS Event Stream) format
 - **Response conversion** — Converts Kiro event streams back to Anthropic SSE format
 - **Automatic auth management** — Reads credentials from Kiro CLI's SQLite DB with automatic token refresh (Social / OIDC)
@@ -62,7 +62,9 @@ curl http://127.0.0.1:3456/v1/chat/completions \
   -d '{"model":"claude-sonnet-4-6","messages":[{"role":"user","content":"你好"}]}'
 ```
 
-支持文本、多轮消息、普通 function tools、流式 SSE、用量信息和推理强度。Responses 的 `previous_response_id` 仅在当前进程存活期间有效；重启后请由客户端发送完整历史。Kiro 不具备 OpenAI 托管 web search、file search、computer 或 MCP 工具的等价能力，代理会明确拒绝这些工具类型。
+支持文本、多轮消息、普通 function tools、流式 SSE、用量信息和推理强度。Chat Completions 与 Responses 均支持 PNG、JPEG、GIF、WebP 的 base64 data URL 图片，以及图文混合的工具结果；远程图片 URL、`file_id` 和非图片文件不会由代理下载或转发。Responses 支持 `additional_tools`，并支持 `tool_choice: "auto"` 与 `"none"`；Kiro 无法保证 `required` 或指定工具，因此会明确拒绝这些请求而不是静默降级。
+
+Responses 的 `previous_response_id` 是进程内有界缓存，服务重启、过期或容量淘汰后请由客户端发送完整历史。客户端回传带 `encrypted_content` 的 Responses reasoning item 时，代理会将其作为不透明状态原样传给 Kiro 的工具调用续轮，不会生成或解密该字段。Kiro 不具备 OpenAI 托管 web search、file search、computer 或 MCP 工具的等价能力，代理会明确拒绝这些工具类型。
 
 ### Docker 部署
 

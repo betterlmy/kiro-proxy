@@ -1,0 +1,31 @@
+{
+  "model": "claude-sonnet-4-6",
+  "tool_choice": "auto",
+  "messages": [
+    {
+      "role": "user",
+      "content": [
+        {"type": "text", "text": "Read this image"},
+        {"type": "image_url", "image_url": {"url": "data:image/png;base64,aGVsbG8="}}
+      ]
+    },
+    {
+      "role": "assistant",
+      "content": null,
+      "tool_calls": [
+        {"id": "call.opencode", "type": "function", "function": {"name": "read_file", "arguments": "{}"}}
+      ]
+    },
+    {
+      "role": "tool",
+      "tool_call_id": "call.opencode",
+      "content": [
+        {"type": "text", "text": "image read"},
+        {"type": "image_url", "image_url": {"url": "data:image/webp;base64,aGVsbG8="}}
+      ]
+    }
+  ],
+  "tools": [
+    {"type": "function", "function": {"name": "read_file", "parameters": {"type": "object"}}}
+  ]
+}

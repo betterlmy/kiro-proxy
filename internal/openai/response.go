@@ -4,13 +4,15 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strconv"
+	"strings"
 
 	"github.com/betterlmy/kiro-proxy/internal/respconv"
 	"github.com/google/uuid"
 )
 
 func chatResponse(id, model string, source map[string]any) map[string]any {
-	content, toolCalls, reasoning := responseParts(source)
+	content, toolCalls, reasoning, _ := responseParts(source)
 	message := map[string]any{"role": "assistant", "content": content}
 	if len(toolCalls) > 0 {
 		message["tool_calls"] = toolCalls
@@ -33,7 +35,7 @@ func chatResponse(id, model string, source map[string]any) map[string]any {
 	}
 }
 
-func responsesResponse(id, model string, source map[string]any, previousID string, toolKinds map[string]responseToolKind) (map[string]any, error) {
+func responsesResponse(id, model string, source map[string]any, previousID string, toolKinds map[string]responseToolKind, toolChoice any) (map[string]any, error) {
 	output, err := responseOutput(source, toolKinds)
 	if err != nil {
 		return nil, err
@@ -42,12 +44,12 @@ func responsesResponse(id, model string, source map[string]any, previousID strin
 		"id": id, "object": "response", "created_at": now(), "status": "completed", "completed_at": now(),
 		"error": nil, "incomplete_details": nil, "model": model, "output": output,
 		"previous_response_id": nullIfEmpty(previousID), "store": false,
-		"parallel_tool_calls": true, "tool_choice": "auto", "usage": responseUsage(source),
+		"parallel_tool_calls": true, "tool_choice": toolChoice, "usage": responseUsage(source),
 	}, nil
 }
 
-func responseParts(source map[string]any) (string, []any, string) {
-	var text, reasoning string
+func responseParts(source map[string]any) (string, []any, string, string) {
+	var text, reasoning, redacted string
 	var tools []any
 	blocks, _ := source["content"].([]any)
 	for _, raw := range blocks {
@@ -57,6 +59,8 @@ func responseParts(source map[string]any) (string, []any, string) {
 			text += stringValue(block["text"])
 		case "thinking":
 			reasoning += stringValue(block["thinking"])
+		case "redacted_thinking":
+			redacted = stringValue(block["data"])
 		case "tool_use":
 			args, _ := json.Marshal(block["input"])
 			tools = append(tools, map[string]any{
@@ -65,14 +69,21 @@ func responseParts(source map[string]any) (string, []any, string) {
 			})
 		}
 	}
-	return text, tools, reasoning
+	return text, tools, reasoning, redacted
 }
 
 func responseOutput(source map[string]any, toolKinds map[string]responseToolKind) ([]any, error) {
-	text, tools, reasoning := responseParts(source)
+	text, tools, reasoning, redacted := responseParts(source)
 	output := make([]any, 0, len(tools)+2)
-	if reasoning != "" {
-		output = append(output, map[string]any{"id": "rs_" + idSuffix(), "type": "reasoning", "summary": []any{map[string]any{"type": "summary_text", "text": reasoning}}})
+	if reasoning != "" || redacted != "" {
+		item := map[string]any{"id": "rs_" + idSuffix(), "type": "reasoning", "status": "completed", "summary": []any{}}
+		if reasoning != "" {
+			item["summary"] = []any{map[string]any{"type": "summary_text", "text": reasoning}}
+		}
+		if redacted != "" {
+			item["encrypted_content"] = redacted
+		}
+		output = append(output, item)
 	}
 	if text != "" {
 		output = append(output, map[string]any{"id": "msg_" + idSuffix(), "type": "message", "role": "assistant", "status": "completed", "content": []any{map[string]any{"type": "output_text", "text": text, "annotations": []any{}}}})
@@ -138,36 +149,64 @@ func intValue(v any) int       { value, _ := v.(int); return value }
 func idSuffix() string         { return uuid.NewString() }
 
 type streamWriter struct {
-	w                     http.ResponseWriter
-	f                     http.Flusher
-	api                   surface
-	id, model, previousID string
-	sequence              int
-	chatRole              bool
-	chatToolIndex         int
-	responseTextOpen      bool
-	responseOutputIndex   int
-	toolKinds             map[string]responseToolKind
-	failed                bool
+	w                       http.ResponseWriter
+	f                       http.Flusher
+	api                     surface
+	id, model, previousID   string
+	sequence                int
+	chatRole                bool
+	chatToolIndex           int
+	responseTextOpen        bool
+	responseTextID          string
+	responseTextIndex       int
+	responseText            strings.Builder
+	responseReasoningOpen   bool
+	responseReasoningID     string
+	responseReasoningIndex  int
+	responseReasoning       strings.Builder
+	responseRedactedSeen    bool
+	nextResponseOutputIndex int
+	toolKinds               map[string]responseToolKind
+	toolChoice              any
+	failed                  bool
 }
 
-func newStreamWriter(w http.ResponseWriter, f http.Flusher, api surface, id, model, previousID string, toolKinds map[string]responseToolKind) *streamWriter {
-	return &streamWriter{w: w, f: f, api: api, id: id, model: model, previousID: previousID, toolKinds: toolKinds}
+func newStreamWriter(w http.ResponseWriter, f http.Flusher, api surface, id, model, previousID string, toolKinds map[string]responseToolKind, choices ...any) *streamWriter {
+	toolChoice := any("auto")
+	if len(choices) > 0 {
+		toolChoice = choices[0]
+	}
+	return &streamWriter{w: w, f: f, api: api, id: id, model: model, previousID: previousID, toolKinds: toolKinds, toolChoice: toolChoice}
 }
 
 func (s *streamWriter) start() {
 	if s.api == surfaceChat {
 		return
 	}
-	s.event(map[string]any{"type": "response.created", "response": map[string]any{"id": s.id, "object": "response", "created_at": now(), "status": "in_progress", "model": s.model, "output": []any{}, "usage": nil, "previous_response_id": nullIfEmpty(s.previousID)}})
+	response := s.responseEnvelope("in_progress", nil)
+	s.event(map[string]any{"type": "response.created", "response": response})
+	s.event(map[string]any{"type": "response.in_progress", "response": response})
 }
 
 func (s *streamWriter) delta(delta respconv.EventDelta) {
+	if s.failed {
+		return
+	}
 	if delta.ThinkingDelta != "" {
 		if s.api == surfaceChat {
 			s.chat(map[string]any{"reasoning_content": delta.ThinkingDelta})
 		} else {
-			s.event(map[string]any{"type": "response.reasoning_summary_text.delta", "delta": delta.ThinkingDelta, "output_index": s.responseOutputIndex, "summary_index": 0, "item_id": "rs_" + s.id})
+			s.openReasoning()
+			s.responseReasoning.WriteString(delta.ThinkingDelta)
+			s.event(map[string]any{"type": "response.reasoning_summary_text.delta", "delta": delta.ThinkingDelta, "output_index": s.responseReasoningIndex, "summary_index": 0, "item_id": s.responseReasoningID})
+		}
+	}
+	if delta.RedactedContent != "" && s.api == surfaceResponses {
+		s.responseRedactedSeen = true
+		if s.responseReasoningOpen {
+			s.closeReasoning(delta.RedactedContent)
+		} else {
+			s.emitOpaqueReasoning(delta.RedactedContent)
 		}
 	}
 	if delta.TextDelta != "" {
@@ -175,19 +214,13 @@ func (s *streamWriter) delta(delta respconv.EventDelta) {
 			s.chat(map[string]any{"content": delta.TextDelta})
 			return
 		}
-		if !s.responseTextOpen {
-			s.responseTextOpen = true
-			s.event(map[string]any{"type": "response.output_item.added", "output_index": s.responseOutputIndex, "item": map[string]any{"id": "msg_" + s.id, "type": "message", "role": "assistant", "status": "in_progress", "content": []any{}}})
-			s.event(map[string]any{"type": "response.content_part.added", "output_index": s.responseOutputIndex, "content_index": 0, "item_id": "msg_" + s.id, "part": map[string]any{"type": "output_text", "text": "", "annotations": []any{}}})
-		}
-		s.event(map[string]any{"type": "response.output_text.delta", "output_index": s.responseOutputIndex, "content_index": 0, "item_id": "msg_" + s.id, "delta": delta.TextDelta})
+		s.openText()
+		s.responseText.WriteString(delta.TextDelta)
+		s.event(map[string]any{"type": "response.output_text.delta", "output_index": s.responseTextIndex, "content_index": 0, "item_id": s.responseTextID, "delta": delta.TextDelta})
 	}
 	if delta.ToolStop {
 		if s.responseTextOpen && s.api == surfaceResponses {
-			s.event(map[string]any{"type": "response.output_text.done", "output_index": s.responseOutputIndex, "content_index": 0, "item_id": "msg_" + s.id, "text": ""})
-			s.event(map[string]any{"type": "response.output_item.done", "output_index": s.responseOutputIndex, "item": map[string]any{"id": "msg_" + s.id, "type": "message", "role": "assistant", "status": "completed", "content": []any{}}})
-			s.responseTextOpen = false
-			s.responseOutputIndex++
+			s.closeText()
 		}
 		if s.api == surfaceChat {
 			s.chat(map[string]any{"tool_calls": []any{map[string]any{"index": s.chatToolIndex, "id": delta.ToolUseID, "type": "function", "function": map[string]any{"name": delta.ToolName, "arguments": delta.ToolInput}}}})
@@ -195,16 +228,16 @@ func (s *streamWriter) delta(delta respconv.EventDelta) {
 		} else {
 			call, err := responseToolCall(delta.ToolUseID, delta.ToolName, delta.ToolInput, s.toolKinds)
 			if err != nil {
-				s.failed = true
 				s.error(err.Error())
 				return
 			}
+			outputIndex := s.nextResponseOutputIndex
+			s.nextResponseOutputIndex++
 			if call["type"] == "custom_tool_call" {
-				s.writeCustomToolCall(call)
+				s.writeCustomToolCall(call, outputIndex)
 			} else {
-				s.writeFunctionToolCall(call)
+				s.writeFunctionToolCall(call, outputIndex)
 			}
-			s.responseOutputIndex++
 		}
 	}
 }
@@ -212,22 +245,26 @@ func (s *streamWriter) delta(delta respconv.EventDelta) {
 func (s *streamWriter) finish(source map[string]any, includeUsage bool) {
 	if s.api == surfaceChat {
 		finish := "stop"
-		_, tools, _ := responseParts(source)
+		_, tools, _, _ := responseParts(source)
 		if len(tools) > 0 {
 			finish = "tool_calls"
 		}
 		s.chatFinal(finish, includeUsage, chatUsage(source))
 		return
 	}
-	if s.responseTextOpen {
-		text, _, _ := responseParts(source)
-		s.event(map[string]any{"type": "response.output_text.done", "output_index": s.responseOutputIndex, "content_index": 0, "item_id": "msg_" + s.id, "text": text})
-		s.event(map[string]any{"type": "response.output_item.done", "output_index": s.responseOutputIndex, "item": map[string]any{"id": "msg_" + s.id, "type": "message", "role": "assistant", "status": "completed", "content": []any{map[string]any{"type": "output_text", "text": text, "annotations": []any{}}}}})
-	}
 	if s.failed {
 		return
 	}
-	response, err := responsesResponse(s.id, s.model, source, s.previousID, s.toolKinds)
+	if s.responseTextOpen {
+		s.closeText()
+	}
+	_, _, _, redacted := responseParts(source)
+	if s.responseReasoningOpen {
+		s.closeReasoning(redacted)
+	} else if redacted != "" && !s.responseRedactedSeen {
+		s.emitOpaqueReasoning(redacted)
+	}
+	response, err := responsesResponse(s.id, s.model, source, s.previousID, s.toolKinds, s.toolChoice)
 	if err != nil {
 		s.error(err.Error())
 		return
@@ -235,22 +272,87 @@ func (s *streamWriter) finish(source map[string]any, includeUsage bool) {
 	s.event(map[string]any{"type": "response.completed", "response": response})
 }
 
-func (s *streamWriter) writeFunctionToolCall(call map[string]any) {
-	itemID := "fc_" + stringValue(call["call_id"])
-	arguments := stringValue(call["arguments"])
-	s.event(map[string]any{"type": "response.output_item.added", "output_index": s.responseOutputIndex, "item": map[string]any{"id": itemID, "type": "function_call", "call_id": call["call_id"], "name": call["name"], "arguments": "", "status": "in_progress"}})
-	s.event(map[string]any{"type": "response.function_call_arguments.delta", "output_index": s.responseOutputIndex, "item_id": itemID, "delta": arguments})
-	s.event(map[string]any{"type": "response.function_call_arguments.done", "output_index": s.responseOutputIndex, "item_id": itemID, "arguments": arguments})
-	s.event(map[string]any{"type": "response.output_item.done", "output_index": s.responseOutputIndex, "item": map[string]any{"id": itemID, "type": "function_call", "call_id": call["call_id"], "name": call["name"], "arguments": arguments, "status": "completed"}})
+func (s *streamWriter) openReasoning() {
+	if s.responseReasoningOpen {
+		return
+	}
+	s.responseReasoningOpen = true
+	s.responseReasoningIndex = s.nextResponseOutputIndex
+	s.nextResponseOutputIndex++
+	s.responseReasoningID = "rs_" + s.id + "_" + strconv.Itoa(s.responseReasoningIndex)
+	s.event(map[string]any{"type": "response.output_item.added", "output_index": s.responseReasoningIndex, "item": map[string]any{"id": s.responseReasoningID, "type": "reasoning", "status": "in_progress", "summary": []any{}}})
+	s.event(map[string]any{"type": "response.reasoning_summary_part.added", "output_index": s.responseReasoningIndex, "summary_index": 0, "item_id": s.responseReasoningID, "part": map[string]any{"type": "summary_text", "text": ""}})
 }
 
-func (s *streamWriter) writeCustomToolCall(call map[string]any) {
+func (s *streamWriter) closeReasoning(encrypted string) {
+	if !s.responseReasoningOpen {
+		return
+	}
+	summary := s.responseReasoning.String()
+	s.event(map[string]any{"type": "response.reasoning_summary_text.done", "output_index": s.responseReasoningIndex, "summary_index": 0, "item_id": s.responseReasoningID, "text": summary})
+	s.event(map[string]any{"type": "response.reasoning_summary_part.done", "output_index": s.responseReasoningIndex, "summary_index": 0, "item_id": s.responseReasoningID, "part": map[string]any{"type": "summary_text", "text": summary}})
+	item := map[string]any{"id": s.responseReasoningID, "type": "reasoning", "status": "completed", "summary": []any{map[string]any{"type": "summary_text", "text": summary}}}
+	if encrypted != "" {
+		item["encrypted_content"] = encrypted
+	}
+	s.event(map[string]any{"type": "response.output_item.done", "output_index": s.responseReasoningIndex, "item": item})
+	s.responseReasoningOpen = false
+	s.responseReasoning.Reset()
+}
+
+func (s *streamWriter) emitOpaqueReasoning(encrypted string) {
+	s.openReasoning()
+	s.closeReasoning(encrypted)
+}
+
+func (s *streamWriter) openText() {
+	if s.responseTextOpen {
+		return
+	}
+	s.responseTextOpen = true
+	s.responseTextIndex = s.nextResponseOutputIndex
+	s.nextResponseOutputIndex++
+	s.responseTextID = "msg_" + s.id + "_" + strconv.Itoa(s.responseTextIndex)
+	s.event(map[string]any{"type": "response.output_item.added", "output_index": s.responseTextIndex, "item": map[string]any{"id": s.responseTextID, "type": "message", "role": "assistant", "status": "in_progress", "content": []any{}}})
+	s.event(map[string]any{"type": "response.content_part.added", "output_index": s.responseTextIndex, "content_index": 0, "item_id": s.responseTextID, "part": map[string]any{"type": "output_text", "text": "", "annotations": []any{}}})
+}
+
+func (s *streamWriter) closeText() {
+	if !s.responseTextOpen {
+		return
+	}
+	text := s.responseText.String()
+	s.event(map[string]any{"type": "response.output_text.done", "output_index": s.responseTextIndex, "content_index": 0, "item_id": s.responseTextID, "text": text})
+	s.event(map[string]any{"type": "response.content_part.done", "output_index": s.responseTextIndex, "content_index": 0, "item_id": s.responseTextID, "part": map[string]any{"type": "output_text", "text": text, "annotations": []any{}}})
+	s.event(map[string]any{"type": "response.output_item.done", "output_index": s.responseTextIndex, "item": map[string]any{"id": s.responseTextID, "type": "message", "role": "assistant", "status": "completed", "content": []any{map[string]any{"type": "output_text", "text": text, "annotations": []any{}}}}})
+	s.responseTextOpen = false
+	s.responseText.Reset()
+}
+
+func (s *streamWriter) responseEnvelope(status string, errBody any) map[string]any {
+	return map[string]any{
+		"id": s.id, "object": "response", "created_at": now(), "status": status,
+		"model": s.model, "output": []any{}, "usage": nil,
+		"previous_response_id": nullIfEmpty(s.previousID), "error": errBody,
+	}
+}
+
+func (s *streamWriter) writeFunctionToolCall(call map[string]any, outputIndex int) {
+	itemID := "fc_" + stringValue(call["call_id"])
+	arguments := stringValue(call["arguments"])
+	s.event(map[string]any{"type": "response.output_item.added", "output_index": outputIndex, "item": map[string]any{"id": itemID, "type": "function_call", "call_id": call["call_id"], "name": call["name"], "arguments": "", "status": "in_progress"}})
+	s.event(map[string]any{"type": "response.function_call_arguments.delta", "output_index": outputIndex, "item_id": itemID, "delta": arguments})
+	s.event(map[string]any{"type": "response.function_call_arguments.done", "output_index": outputIndex, "item_id": itemID, "arguments": arguments})
+	s.event(map[string]any{"type": "response.output_item.done", "output_index": outputIndex, "item": map[string]any{"id": itemID, "type": "function_call", "call_id": call["call_id"], "name": call["name"], "arguments": arguments, "status": "completed"}})
+}
+
+func (s *streamWriter) writeCustomToolCall(call map[string]any, outputIndex int) {
 	itemID := "ctc_" + stringValue(call["call_id"])
 	input := stringValue(call["input"])
-	s.event(map[string]any{"type": "response.output_item.added", "output_index": s.responseOutputIndex, "item": map[string]any{"id": itemID, "type": "custom_tool_call", "call_id": call["call_id"], "name": call["name"], "input": "", "status": "in_progress"}})
-	s.event(map[string]any{"type": "response.custom_tool_call_input.delta", "output_index": s.responseOutputIndex, "item_id": itemID, "delta": input})
-	s.event(map[string]any{"type": "response.custom_tool_call_input.done", "output_index": s.responseOutputIndex, "item_id": itemID, "input": input})
-	s.event(map[string]any{"type": "response.output_item.done", "output_index": s.responseOutputIndex, "item": map[string]any{"id": itemID, "type": "custom_tool_call", "call_id": call["call_id"], "name": call["name"], "input": input, "status": "completed"}})
+	s.event(map[string]any{"type": "response.output_item.added", "output_index": outputIndex, "item": map[string]any{"id": itemID, "type": "custom_tool_call", "call_id": call["call_id"], "name": call["name"], "input": "", "status": "in_progress"}})
+	s.event(map[string]any{"type": "response.custom_tool_call_input.delta", "output_index": outputIndex, "item_id": itemID, "delta": input})
+	s.event(map[string]any{"type": "response.custom_tool_call_input.done", "output_index": outputIndex, "item_id": itemID, "input": input})
+	s.event(map[string]any{"type": "response.output_item.done", "output_index": outputIndex, "item": map[string]any{"id": itemID, "type": "custom_tool_call", "call_id": call["call_id"], "name": call["name"], "input": input, "status": "completed"}})
 }
 
 func (s *streamWriter) error(message string) {
@@ -258,7 +360,12 @@ func (s *streamWriter) error(message string) {
 		s.write(map[string]any{"error": map[string]any{"message": message, "type": "server_error"}})
 		return
 	}
-	s.event(map[string]any{"type": "error", "error": map[string]any{"message": message, "type": "server_error"}})
+	if s.failed {
+		return
+	}
+	s.failed = true
+	errBody := map[string]any{"message": message, "type": "server_error"}
+	s.event(map[string]any{"type": "response.failed", "response": s.responseEnvelope("failed", errBody)})
 }
 
 func (s *streamWriter) chat(delta map[string]any) {

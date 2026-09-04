@@ -3,6 +3,7 @@ package openai
 import (
 	"encoding/json"
 	"net/http/httptest"
+	"os"
 	"strings"
 	"testing"
 
@@ -239,7 +240,7 @@ func TestStreamWriter_CustomToolCall(t *testing.T) {
 }
 
 func TestStreamWriter_MessageDoneIncludesContent(t *testing.T) {
-	t.Run("工具调用前的消息使用空内容数组", func(t *testing.T) {
+	t.Run("工具调用前的消息保留已发送文本", func(t *testing.T) {
 		recorder := httptest.NewRecorder()
 		writer := newStreamWriter(recorder, recorder, surfaceResponses, "resp_1", "model", "", nil)
 		writer.delta(respconv.EventDelta{TextDelta: "先说明"})
@@ -250,8 +251,12 @@ func TestStreamWriter_MessageDoneIncludesContent(t *testing.T) {
 			t.Fatalf("message done count = %d, want 1", len(items))
 		}
 		content, ok := items[0]["content"].([]any)
-		if !ok || len(content) != 0 {
-			t.Fatalf("message content = %#v, want empty array", items[0]["content"])
+		if !ok || len(content) != 1 {
+			t.Fatalf("message content = %#v, want one text part", items[0]["content"])
+		}
+		part, _ := content[0].(map[string]any)
+		if part["type"] != "output_text" || part["text"] != "先说明" {
+			t.Fatalf("message content part = %#v", part)
 		}
 	})
 
@@ -294,4 +299,185 @@ func responseMessageDoneItems(t *testing.T, body string) []map[string]any {
 		}
 	}
 	return items
+}
+
+func TestOpenAIContent_InlineImageAndToolResult(t *testing.T) {
+	content, err := openAIContent([]any{
+		map[string]any{"type": "input_text", "text": "describe this"},
+		map[string]any{"type": "input_image", "image_url": "data:image/png;base64,aGVsbG8="},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(content.Blocks) != 2 || content.Blocks[1].Type != anthropic.BlockTypeImage {
+		t.Fatalf("content = %#v", content)
+	}
+	if content.Blocks[1].Source.MediaType != "image/png" || content.Blocks[1].Source.Data != "aGVsbG8=" {
+		t.Fatalf("image source = %#v", content.Blocks[1].Source)
+	}
+
+	messages, err := responseInputMessages([]any{
+		map[string]any{"type": "function_call", "call_id": "call.image", "name": "read_image", "arguments": `{}`},
+		map[string]any{"type": "function_call_output", "call_id": "call.image", "output": []any{
+			map[string]any{"type": "output_text", "text": "found image"},
+			map[string]any{"type": "input_image", "image_url": "data:image/webp;base64,aGVsbG8="},
+		}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	result := messages[1].Content.Blocks[0]
+	if strings.Contains(result.ToolUseID, ".") || len(result.Content.Blocks) != 2 || result.Content.Blocks[1].Type != anthropic.BlockTypeImage {
+		t.Fatalf("tool result = %#v", result)
+	}
+
+	if _, err := openAIContent([]any{map[string]any{"type": "image_url", "image_url": map[string]any{"url": "https://example.com/image.png"}}}); err == nil || !strings.Contains(err.Error(), "remote image URLs") {
+		t.Fatalf("remote image error = %v", err)
+	}
+}
+
+func TestResponseInput_NormalizesReasoningAndDuplicateToolResults(t *testing.T) {
+	messages, err := responseInputMessages([]any{
+		map[string]any{"type": "reasoning", "encrypted_content": "opaque-kiro-state"},
+		map[string]any{"type": "function_call", "call_id": "call_1", "name": "read_file", "arguments": `{}`},
+		map[string]any{"type": "function_call_output", "call_id": "call_1", "output": "partial"},
+		map[string]any{"type": "function_call_output", "call_id": "call_1", "output": "final"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(messages) != 2 {
+		t.Fatalf("message count = %d, want 2", len(messages))
+	}
+	assistant := messages[0].Content.Blocks
+	if len(assistant) != 2 || assistant[0].Type != anthropic.BlockTypeRedactedThinking || assistant[1].ID != "call_1" {
+		t.Fatalf("assistant blocks = %#v", assistant)
+	}
+	results := messages[1].Content.Blocks
+	if len(results) != 1 || results[0].Content.Text != "final" {
+		t.Fatalf("tool results = %#v", results)
+	}
+}
+
+func TestNormalizeToolChoiceAndAdditionalTools(t *testing.T) {
+	chat := ChatRequest{Model: "model", Messages: []ChatMessage{{Role: "user", Content: "hello"}}, ToolChoice: "none"}
+	tool := ChatTool{Type: "function"}
+	tool.Function.Name = "read_file"
+	chat.Tools = []ChatTool{tool}
+	normalizedChat, err := chat.Normalize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if normalizedChat.ToolChoice != "none" || len(normalizedChat.Tools) != 0 {
+		t.Fatalf("chat tools = %#v, choice = %#v", normalizedChat.Tools, normalizedChat.ToolChoice)
+	}
+	chat.ToolChoice = "required"
+	if _, err := chat.Normalize(); err == nil || !strings.Contains(err.Error(), "cannot be enforced") {
+		t.Fatalf("required choice error = %v", err)
+	}
+
+	request := ResponsesRequest{
+		Model: "model",
+		Input: []any{map[string]any{
+			"type": "message", "role": "user", "content": "hello",
+			"additional_tools": []any{map[string]any{"type": "function", "name": "read_file", "parameters": map[string]any{"type": "object"}}},
+		}},
+	}
+	normalizedResponse, err := request.Normalize()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(normalizedResponse.Tools) != 1 || normalizedResponse.Tools[0].Name != "read_file" {
+		t.Fatalf("additional tools = %#v", normalizedResponse.Tools)
+	}
+}
+
+func TestResponseOutput_ExposesOpaqueReasoning(t *testing.T) {
+	output, err := responseOutput(map[string]any{"content": []any{
+		map[string]any{"type": "thinking", "thinking": "considered"},
+		map[string]any{"type": "redacted_thinking", "data": "opaque-kiro-state"},
+	}}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	item := output[0].(map[string]any)
+	if item["encrypted_content"] != "opaque-kiro-state" {
+		t.Fatalf("reasoning item = %#v", item)
+	}
+}
+
+func TestStreamWriter_ResponsesLifecycleAndFailure(t *testing.T) {
+	recorder := httptest.NewRecorder()
+	writer := newStreamWriter(recorder, recorder, surfaceResponses, "resp_1", "model", "", nil)
+	writer.start()
+	writer.delta(respconv.EventDelta{ThinkingDelta: "think"})
+	writer.delta(respconv.EventDelta{TextDelta: "answer"})
+	writer.delta(respconv.EventDelta{RedactedContent: "opaque"})
+	writer.finish(map[string]any{"content": []any{
+		map[string]any{"type": "thinking", "thinking": "think"},
+		map[string]any{"type": "text", "text": "answer"},
+		map[string]any{"type": "redacted_thinking", "data": "opaque"},
+	}}, false)
+	body := recorder.Body.String()
+	for _, want := range []string{
+		"response.created", "response.in_progress", "response.reasoning_summary_part.added",
+		"response.reasoning_summary_text.done", "response.content_part.done", "response.completed", "opaque",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("stream missing %q: %s", want, body)
+		}
+	}
+	if got := strings.Count(body, `"encrypted_content":"opaque"`); got != 2 {
+		t.Fatalf("opaque reasoning event count = %d, want 2 (item done and completed response): %s", got, body)
+	}
+
+	failure := httptest.NewRecorder()
+	failingWriter := newStreamWriter(failure, failure, surfaceResponses, "resp_2", "model", "", nil)
+	failingWriter.start()
+	failingWriter.error("upstream failed")
+	if body := failure.Body.String(); !strings.Contains(body, "response.failed") || strings.Contains(body, "event: error") {
+		t.Fatalf("failure stream = %s", body)
+	}
+}
+
+func TestCompatibilityFixturesNormalize(t *testing.T) {
+	tests := []struct {
+		name string
+		path string
+		run  func([]byte) error
+	}{
+		{
+			name: "opencode chat", path: "testdata/opencode_chat_image_tool.json",
+			run: func(raw []byte) error {
+				var request ChatRequest
+				if err := json.Unmarshal(raw, &request); err != nil {
+					return err
+				}
+				_, err := request.Normalize()
+				return err
+			},
+		},
+		{
+			name: "codex responses", path: "testdata/codex_responses_tool_round.json",
+			run: func(raw []byte) error {
+				var request ResponsesRequest
+				if err := json.Unmarshal(raw, &request); err != nil {
+					return err
+				}
+				_, err := request.Normalize()
+				return err
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			raw, err := os.ReadFile(tt.path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := tt.run(raw); err != nil {
+				t.Fatal(err)
+			}
+		})
+	}
 }

@@ -27,7 +27,7 @@ func TestOpenAIChatCompletions_TextAndTools(t *testing.T) {
 	defer ts.Close()
 
 	resp := postOpenAI(t, ts.URL, "/v1/chat/completions", `{"model":"claude-sonnet-4-6","messages":[{"role":"system","content":"be brief"},{"role":"user","content":"hello"}],"tools":[{"type":"function","function":{"name":"read_file","description":"read","parameters":{"type":"object"}}}]}`)
-	defer resp.Body.Close()
+	t.Cleanup(func() { _ = resp.Body.Close() })
 	requireStatus(t, resp, http.StatusOK)
 	body := decodeResponse(t, resp)
 	choices := body["choices"].([]any)
@@ -66,7 +66,7 @@ func TestOpenAIChatCompletions_ParallelToolResults(t *testing.T) {
 			{"type":"function","function":{"name":"second","parameters":{"type":"object"}}}
 		]
 	}`)
-	defer resp.Body.Close()
+	t.Cleanup(func() { _ = resp.Body.Close() })
 	requireStatus(t, resp, http.StatusOK)
 	_ = decodeResponse(t, resp)
 	requireCaptured(t, client)
@@ -99,7 +99,7 @@ func TestOpenAIResponses_StreamAndContinuation(t *testing.T) {
 	responseID := firstBody["id"].(string)
 
 	second := postOpenAI(t, ts.URL, "/v1/responses", `{"model":"claude-sonnet-4-6","previous_response_id":"`+responseID+`","input":"second","stream":true}`)
-	defer second.Body.Close()
+	t.Cleanup(func() { _ = second.Body.Close() })
 	requireStatus(t, second, http.StatusOK)
 	body, err := io.ReadAll(second.Body)
 	if err != nil {

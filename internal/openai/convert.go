@@ -103,75 +103,124 @@ func customToolInputSchema() map[string]any {
 	}
 }
 
+type normalizedResponseInput struct {
+	Messages        []anthropic.Message
+	AdditionalTools []ResponseTool
+}
+
 func responseInputMessages(input any) ([]anthropic.Message, error) {
+	normalized, err := normalizeResponseInput(input)
+	return normalized.Messages, err
+}
+
+func normalizeResponseInput(input any) (normalizedResponseInput, error) {
 	if text, ok := input.(string); ok {
-		return []anthropic.Message{{Role: "user", Content: anthropic.MessageContent{Text: text}}}, nil
+		return normalizedResponseInput{Messages: []anthropic.Message{{Role: "user", Content: anthropic.MessageContent{Text: text}}}}, nil
 	}
 	items, ok := input.([]any)
 	if !ok {
-		return nil, fmt.Errorf("input must be a string or an array of input items")
+		return normalizedResponseInput{}, fmt.Errorf("input must be a string or an array of input items")
 	}
-	result := make([]anthropic.Message, 0, len(items))
+	result := normalizedResponseInput{Messages: make([]anthropic.Message, 0, len(items))}
+	toolIDs := newToolCallIDMap()
 	for _, raw := range items {
 		item, ok := raw.(map[string]any)
 		if !ok {
-			return nil, fmt.Errorf("input items must be objects")
+			return normalizedResponseInput{}, fmt.Errorf("input items must be objects")
 		}
+		additional, err := responseAdditionalTools(item)
+		if err != nil {
+			return normalizedResponseInput{}, err
+		}
+		result.AdditionalTools = append(result.AdditionalTools, additional...)
 		typ, _ := item["type"].(string)
 		switch typ {
 		case "message", "":
 			role, _ := item["role"].(string)
-			content, err := contentText(item["content"])
+			content, err := openAIContent(item["content"])
 			if err != nil {
-				return nil, err
+				return normalizedResponseInput{}, err
 			}
 			switch role {
-			case "user":
-				result = appendNormalizedMessage(result, anthropic.Message{Role: "user", Content: anthropic.MessageContent{Text: content}})
-			case "assistant":
-				result = appendNormalizedMessage(result, anthropic.Message{Role: "assistant", Content: anthropic.MessageContent{Text: content}})
+			case "user", "assistant":
+				result.Messages = appendNormalizedMessage(result.Messages, anthropic.Message{Role: role, Content: content})
 			case "system", "developer":
-				// Responses' system/developer items are treated as a user-side
-				// instruction because this API surface carries no separate field.
-				result = appendNormalizedMessage(result, anthropic.Message{Role: "user", Content: anthropic.MessageContent{Text: content}})
+				text, err := textOnlyContent(content)
+				if err != nil {
+					return normalizedResponseInput{}, fmt.Errorf("%s input message: %w", role, err)
+				}
+				result.Messages = appendNormalizedMessage(result.Messages, anthropic.Message{Role: "user", Content: anthropic.MessageContent{Text: text}})
 			default:
-				return nil, fmt.Errorf("unsupported input message role %q", role)
+				return normalizedResponseInput{}, fmt.Errorf("unsupported input message role %q", role)
 			}
 		case "function_call_output", "custom_tool_call_output":
-			callID, _ := item["call_id"].(string)
-			if callID == "" {
-				return nil, fmt.Errorf("%s requires call_id", typ)
-			}
-			content, err := contentText(item["output"])
+			rawCallID, _ := item["call_id"].(string)
+			callID, err := toolIDs.Resolve(rawCallID)
 			if err != nil {
-				return nil, err
+				return normalizedResponseInput{}, fmt.Errorf("%s: %w", typ, err)
 			}
-			result = appendNormalizedMessage(result, anthropic.Message{Role: "user", Content: anthropic.MessageContent{Blocks: []anthropic.ContentBlock{{Type: anthropic.BlockTypeToolResult, ToolUseID: callID, Content: anthropic.MessageContent{Text: content}}}}})
+			if callID == "" {
+				return normalizedResponseInput{}, fmt.Errorf("%s requires call_id", typ)
+			}
+			content, err := openAIContent(item["output"])
+			if err != nil {
+				return normalizedResponseInput{}, err
+			}
+			result.Messages = appendToolResultMessage(result.Messages, callID, content)
 		case "function_call":
-			callID, _ := item["call_id"].(string)
+			rawCallID, _ := item["call_id"].(string)
+			callID, err := toolIDs.Register(rawCallID)
+			if err != nil {
+				return normalizedResponseInput{}, fmt.Errorf("function_call: %w", err)
+			}
 			name, _ := item["name"].(string)
 			if callID == "" || name == "" {
-				return nil, fmt.Errorf("function_call requires call_id and name")
+				return normalizedResponseInput{}, fmt.Errorf("function_call requires call_id and name")
 			}
 			arguments, _ := item["arguments"].(string)
-			input, err := objectFromJSON(arguments)
+			toolInput, err := objectFromJSON(arguments)
 			if err != nil {
-				return nil, fmt.Errorf("invalid function_call arguments: %w", err)
+				return normalizedResponseInput{}, fmt.Errorf("invalid function_call arguments: %w", err)
 			}
-			result = appendNormalizedMessage(result, anthropic.Message{Role: "assistant", Content: anthropic.MessageContent{Blocks: []anthropic.ContentBlock{{Type: anthropic.BlockTypeToolUse, ID: callID, Name: name, Input: input}}}})
+			result.Messages = appendNormalizedMessage(result.Messages, anthropic.Message{Role: "assistant", Content: anthropic.MessageContent{Blocks: []anthropic.ContentBlock{{Type: anthropic.BlockTypeToolUse, ID: callID, Name: name, Input: toolInput}}}})
 		case "custom_tool_call":
-			callID, _ := item["call_id"].(string)
-			name, _ := item["name"].(string)
-			input, _ := item["input"].(string)
-			if callID == "" || name == "" {
-				return nil, fmt.Errorf("custom_tool_call requires call_id and name")
+			rawCallID, _ := item["call_id"].(string)
+			callID, err := toolIDs.Register(rawCallID)
+			if err != nil {
+				return normalizedResponseInput{}, fmt.Errorf("custom_tool_call: %w", err)
 			}
-			result = appendNormalizedMessage(result, anthropic.Message{Role: "assistant", Content: anthropic.MessageContent{Blocks: []anthropic.ContentBlock{{Type: anthropic.BlockTypeToolUse, ID: callID, Name: name, Input: map[string]any{"input": input}}}}})
+			name, _ := item["name"].(string)
+			toolInput, _ := item["input"].(string)
+			if callID == "" || name == "" {
+				return normalizedResponseInput{}, fmt.Errorf("custom_tool_call requires call_id and name")
+			}
+			result.Messages = appendNormalizedMessage(result.Messages, anthropic.Message{Role: "assistant", Content: anthropic.MessageContent{Blocks: []anthropic.ContentBlock{{Type: anthropic.BlockTypeToolUse, ID: callID, Name: name, Input: map[string]any{"input": toolInput}}}}})
+		case "reasoning":
+			encrypted, _ := item["encrypted_content"].(string)
+			if encrypted != "" {
+				result.Messages = appendNormalizedMessage(result.Messages, anthropic.Message{Role: "assistant", Content: anthropic.MessageContent{Blocks: []anthropic.ContentBlock{{Type: anthropic.BlockTypeRedactedThinking, Data: encrypted}}}})
+			}
 		default:
-			return nil, fmt.Errorf("unsupported input item type %q", typ)
+			return normalizedResponseInput{}, fmt.Errorf("unsupported input item type %q", typ)
 		}
 	}
 	return result, nil
+}
+
+func responseAdditionalTools(item map[string]any) ([]ResponseTool, error) {
+	raw, ok := item["additional_tools"]
+	if !ok || raw == nil {
+		return nil, nil
+	}
+	encoded, err := json.Marshal(raw)
+	if err != nil {
+		return nil, fmt.Errorf("invalid additional_tools: %w", err)
+	}
+	var tools []ResponseTool
+	if err := json.Unmarshal(encoded, &tools); err != nil {
+		return nil, fmt.Errorf("additional_tools must be an array of tools: %w", err)
+	}
+	return tools, nil
 }
 
 // appendNormalizedMessage preserves an OpenAI tool-call batch as one Anthropic
@@ -191,35 +240,6 @@ func contentBlocks(content anthropic.MessageContent) []anthropic.ContentBlock {
 		return []anthropic.ContentBlock{{Type: anthropic.BlockTypeText, Text: content.Text}}
 	}
 	return content.Blocks
-}
-
-func contentText(content any) (string, error) {
-	if content == nil {
-		return "", nil
-	}
-	if text, ok := content.(string); ok {
-		return text, nil
-	}
-	parts, ok := content.([]any)
-	if !ok {
-		return "", fmt.Errorf("unsupported content format")
-	}
-	var text []string
-	for _, raw := range parts {
-		part, ok := raw.(map[string]any)
-		if !ok {
-			return "", fmt.Errorf("content parts must be objects")
-		}
-		typ, _ := part["type"].(string)
-		switch typ {
-		case "text", "input_text", "output_text":
-			value, _ := part["text"].(string)
-			text = append(text, value)
-		default:
-			return "", fmt.Errorf("unsupported content part type %q", typ)
-		}
-	}
-	return strings.Join(text, "\n"), nil
 }
 
 func objectFromJSON(raw string) (map[string]any, error) {

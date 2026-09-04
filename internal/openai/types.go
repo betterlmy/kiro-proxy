@@ -59,6 +59,8 @@ type ResponsesRequest struct {
 	Input              any            `json:"input"`
 	Instructions       string         `json:"instructions,omitempty"`
 	Tools              []ResponseTool `json:"tools,omitempty"`
+	AdditionalTools    []ResponseTool `json:"additional_tools,omitempty"`
+	ToolChoice         any            `json:"tool_choice,omitempty"`
 	MaxOutputTokens    int            `json:"max_output_tokens,omitempty"`
 	Stream             bool           `json:"stream,omitempty"`
 	PreviousResponseID string         `json:"previous_response_id,omitempty"`
@@ -95,6 +97,7 @@ type Request struct {
 	PreviousResponseID string
 	IncludeUsage       bool
 	ResponseToolKinds  map[string]responseToolKind
+	ToolChoice         any
 }
 
 func (r ChatRequest) Normalize() (Request, error) {
@@ -115,29 +118,38 @@ func (r ChatRequest) Normalize() (Request, error) {
 	if r.StreamOptions != nil {
 		result.IncludeUsage = r.StreamOptions.IncludeUsage
 	}
+	toolIDs := newToolCallIDMap()
 	var system []string
 	for _, message := range r.Messages {
-		text, err := contentText(message.Content)
+		content, err := openAIContent(message.Content)
 		if err != nil {
 			return Request{}, err
 		}
 		switch message.Role {
 		case "system", "developer":
+			text, err := textOnlyContent(content)
+			if err != nil {
+				return Request{}, fmt.Errorf("%s message: %w", message.Role, err)
+			}
 			if text != "" {
 				system = append(system, text)
 			}
 		case "user":
-			result.Messages = appendNormalizedMessage(result.Messages, anthropic.Message{Role: "user", Content: anthropic.MessageContent{Text: text}})
+			result.Messages = appendNormalizedMessage(result.Messages, anthropic.Message{Role: "user", Content: content})
 		case "assistant":
-			blocks := make([]anthropic.ContentBlock, 0, len(message.ToolCalls)+1)
-			if text != "" {
-				blocks = append(blocks, anthropic.ContentBlock{Type: anthropic.BlockTypeText, Text: text})
+			blocks := contentBlocks(content)
+			if len(blocks) == 1 && blocks[0].Type == anthropic.BlockTypeText && blocks[0].Text == "" {
+				blocks = nil
 			}
 			for _, call := range message.ToolCalls {
 				if call.Type != "" && call.Type != "function" {
 					return Request{}, fmt.Errorf("unsupported assistant tool call type %q", call.Type)
 				}
-				if call.ID == "" {
+				callID, err := toolIDs.Register(call.ID)
+				if err != nil {
+					return Request{}, fmt.Errorf("assistant tool call: %w", err)
+				}
+				if callID == "" {
 					return Request{}, fmt.Errorf("assistant tool call requires id")
 				}
 				if call.Function.Name == "" {
@@ -147,7 +159,7 @@ func (r ChatRequest) Normalize() (Request, error) {
 				if err != nil {
 					return Request{}, fmt.Errorf("invalid tool call arguments: %w", err)
 				}
-				blocks = append(blocks, anthropic.ContentBlock{Type: anthropic.BlockTypeToolUse, ID: call.ID, Name: call.Function.Name, Input: input})
+				blocks = append(blocks, anthropic.ContentBlock{Type: anthropic.BlockTypeToolUse, ID: callID, Name: call.Function.Name, Input: input})
 			}
 			if len(blocks) == 0 {
 				result.Messages = appendNormalizedMessage(result.Messages, anthropic.Message{Role: "assistant", Content: anthropic.MessageContent{Text: ""}})
@@ -155,10 +167,14 @@ func (r ChatRequest) Normalize() (Request, error) {
 				result.Messages = appendNormalizedMessage(result.Messages, anthropic.Message{Role: "assistant", Content: anthropic.MessageContent{Blocks: blocks}})
 			}
 		case "tool", "function":
-			if message.ToolCallID == "" {
+			callID, err := toolIDs.Resolve(message.ToolCallID)
+			if err != nil {
+				return Request{}, fmt.Errorf("tool message: %w", err)
+			}
+			if callID == "" {
 				return Request{}, fmt.Errorf("tool messages require tool_call_id")
 			}
-			result.Messages = appendNormalizedMessage(result.Messages, anthropic.Message{Role: "user", Content: anthropic.MessageContent{Blocks: []anthropic.ContentBlock{{Type: anthropic.BlockTypeToolResult, ToolUseID: message.ToolCallID, Content: anthropic.MessageContent{Text: text}}}}})
+			result.Messages = appendToolResultMessage(result.Messages, callID, content)
 		default:
 			return Request{}, fmt.Errorf("unsupported message role %q", message.Role)
 		}
@@ -171,6 +187,13 @@ func (r ChatRequest) Normalize() (Request, error) {
 	result.Tools, err = normalizeChatTools(r.Tools)
 	if err != nil {
 		return Request{}, err
+	}
+	result.ToolChoice, err = normalizeToolChoice(r.ToolChoice)
+	if err != nil {
+		return Request{}, err
+	}
+	if result.ToolChoice == "none" {
+		result.Tools = nil
 	}
 	result.StopSequences, err = stopSequences(r.Stop)
 	return result, err
@@ -188,13 +211,28 @@ func (r ResponsesRequest) Normalize() (Request, error) {
 		result.ReasoningEffort = r.Reasoning.Effort
 	}
 	var err error
-	result.Messages, err = responseInputMessages(r.Input)
+	input, err := normalizeResponseInput(r.Input)
 	if err != nil {
 		return Request{}, err
 	}
+	result.Messages = input.Messages
 	if len(result.Messages) == 0 {
 		return Request{}, fmt.Errorf("input must not be empty")
 	}
-	result.Tools, result.ResponseToolKinds, err = normalizeResponseTools(r.Tools)
-	return result, err
+	tools := append([]ResponseTool{}, r.Tools...)
+	tools = append(tools, r.AdditionalTools...)
+	tools = append(tools, input.AdditionalTools...)
+	result.Tools, result.ResponseToolKinds, err = normalizeResponseTools(tools)
+	if err != nil {
+		return Request{}, err
+	}
+	result.ToolChoice, err = normalizeToolChoice(r.ToolChoice)
+	if err != nil {
+		return Request{}, err
+	}
+	if result.ToolChoice == "none" {
+		result.Tools = nil
+		result.ResponseToolKinds = nil
+	}
+	return result, nil
 }

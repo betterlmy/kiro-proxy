@@ -9,7 +9,6 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/betterlmy/kiro-proxy/internal/anthropic"
@@ -29,18 +28,17 @@ type TokenGetter interface {
 }
 
 // Service serves OpenAI-compatible Chat Completions and Responses requests.
-// Response continuation state is intentionally process-local: the Kiro session
-// ID is mapped from the opaque response ID only for the server lifetime.
+// Response continuation state is process-local, bounded, and expires after a
+// short TTL; clients can resend full history after a restart or eviction.
 type Service struct {
 	auth   TokenGetter
 	client kiroclient.Client
 
-	mu            sync.Mutex
-	conversations map[string]string
+	conversations *conversationStore
 }
 
 func New(auth TokenGetter, client kiroclient.Client) *Service {
-	return &Service{auth: auth, client: client, conversations: make(map[string]string)}
+	return &Service{auth: auth, client: client, conversations: defaultConversationStore()}
 }
 
 func (s *Service) HandleChatCompletions(w http.ResponseWriter, r *http.Request) {
@@ -87,7 +85,7 @@ func (s *Service) execute(w http.ResponseWriter, r *http.Request, input Request,
 	responseID := "resp_" + uuid.NewString()
 	conversationID, ok := s.conversation(input.PreviousResponseID)
 	if input.PreviousResponseID != "" && !ok {
-		writeError(w, http.StatusBadRequest, "invalid_request_error", "unknown previous_response_id; resend the complete conversation after restarting kiro-proxy")
+		writeError(w, http.StatusBadRequest, "invalid_request_error", "previous_response_id is unknown, expired, or evicted; resend the complete conversation after restarting kiro-proxy")
 		return
 	}
 	if conversationID == "" {
@@ -121,7 +119,7 @@ func (s *Service) execute(w http.ResponseWriter, r *http.Request, input Request,
 		writeError(w, http.StatusBadGateway, "server_error", "upstream API error")
 		return
 	}
-	defer upstream.Body.Close()
+	defer func() { _ = upstream.Body.Close() }()
 
 	acc := respconv.NewNonStreamingAccumulator(window, input.StopSequences, input.MaxTokens, upstream.PromptTokens)
 	acc.SetToolNameMap(names.ReverseMap())
@@ -139,7 +137,7 @@ func (s *Service) execute(w http.ResponseWriter, r *http.Request, input Request,
 	if api == surfaceChat {
 		writeJSON(w, chatResponse(responseID, responseModel, response))
 	} else {
-		body, err := responsesResponse(responseID, responseModel, response, input.PreviousResponseID, input.ResponseToolKinds)
+		body, err := responsesResponse(responseID, responseModel, response, input.PreviousResponseID, input.ResponseToolKinds, input.ToolChoice)
 		if err != nil {
 			writeError(w, http.StatusBadGateway, "server_error", err.Error())
 			return
@@ -226,7 +224,7 @@ func (s *Service) stream(w http.ResponseWriter, ctx context.Context, body io.Rea
 	w.Header().Set("Cache-Control", "no-cache")
 	w.Header().Set("Connection", "keep-alive")
 	flusher, _ := w.(http.Flusher)
-	writer := newStreamWriter(w, flusher, api, responseID, model, input.PreviousResponseID, input.ResponseToolKinds)
+	writer := newStreamWriter(w, flusher, api, responseID, model, input.PreviousResponseID, input.ResponseToolKinds, input.ToolChoice)
 	writer.start()
 	err := consume(ctx, body, acc, func(delta respconv.EventDelta) {
 		writer.delta(delta)
@@ -263,24 +261,16 @@ func consume(ctx context.Context, body io.Reader, acc *respconv.NonStreamingAccu
 }
 
 func (s *Service) conversation(responseID string) (string, bool) {
-	if responseID == "" {
-		return "", true
-	}
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	id, ok := s.conversations[responseID]
-	return id, ok
+	return s.conversations.Get(responseID)
 }
 
 func (s *Service) remember(responseID, conversationID string) {
-	s.mu.Lock()
-	s.conversations[responseID] = conversationID
-	s.mu.Unlock()
+	s.conversations.Put(responseID, conversationID)
 }
 
 func decodeRequest(w http.ResponseWriter, r *http.Request, out any) error {
 	r.Body = http.MaxBytesReader(w, r.Body, 4<<20)
-	defer r.Body.Close()
+	defer func() { _ = r.Body.Close() }()
 	return json.NewDecoder(r.Body).Decode(out)
 }
 
